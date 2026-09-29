@@ -1,1 +1,0 @@
-../../../skills/frontend-visualqa/SKILL.md

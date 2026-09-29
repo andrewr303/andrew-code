@@ -59,8 +59,11 @@ scripts/popup-watch/src/bin/
 scripts/popup-watch/src/obj/
 
 # local reference clones (nested repos, not tracked)
-Browser/agent-browser
-QA/Browser/agent-browser
+Browser/
+QA/
+GOAL.md
+fusion/agency-swarm-main/
+fusion/cli-agent-orchestrator-main/
 cwc-long-running-agents
 fusion/graph/agent-graph
 fusion/graph/graph-engineering
