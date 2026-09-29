@@ -1,0 +1,505 @@
+"""DOM-backed claim grounding for deterministic verifier checks."""
+
+from __future__ import annotations
+
+import logging
+import re
+import unicodedata
+from collections.abc import Callable
+from typing import TypedDict
+
+from frontend_visualqa.browser import BrowserSession
+from frontend_visualqa.schemas import ClaimStatus
+from frontend_visualqa.text_utils import collapse_whitespace
+
+
+logger = logging.getLogger(__name__)
+
+
+class ButtonState(TypedDict):
+    text: str
+    fullyVisible: bool
+
+
+class ProgressBarState(TypedDict):
+    label: str
+    fillRatio: float
+
+
+class GroundingState(TypedDict, total=False):
+    visibleHeadings: list[str]
+    visibleButtons: list[str]
+    buttonStates: list[ButtonState]
+    dialogTitles: list[str]
+    progressBars: list[ProgressBarState]
+
+
+BUTTON_VISIBLE_PATTERN = re.compile(
+    r"""^The\s+(?P<label>(?:(?!\b(?:is|are|was|were|has|have|does|do|should|can)\b).)+?)\s+button\s+is\s+visible(?:\s+without\s+scrolling)?\.?$""",
+    re.IGNORECASE,
+)
+BUTTON_FULLY_VISIBLE_PATTERN = re.compile(
+    r"""^The\s+(?P<label>.+?)\s+button\s+is\s+fully\s+visible(?:\s+within\s+its\s+container)?\.?$""",
+    re.IGNORECASE,
+)
+
+
+def _reads_pattern(subject: str) -> re.Pattern[str]:
+    """Compile a 'The <subject> reads "..."' claim pattern.
+
+    Shared by the heading/page-title/modal-title patterns below, which are
+    identical apart from *subject* (e.g. ``"heading"``, ``r"page\\s+title"``).
+    """
+    return re.compile(rf"""^The\s+{subject}\s+reads\s+["'](?P<text>.+?)["']\.?$""", re.IGNORECASE)
+
+
+HEADING_READS_PATTERN = _reads_pattern(r"heading")
+PAGE_TITLE_READS_PATTERN = _reads_pattern(r"page\s+title")
+MODAL_TITLE_READS_PATTERN = _reads_pattern(r"modal\s+title")
+PROGRESS_BAR_COMPLETELY_FILLED_PATTERN = re.compile(
+    r"""^The\s+(?P<label>.+?)\s+progress\s+bar\s+is\s+completely\s+filled\.?$""",
+    re.IGNORECASE,
+)
+GROUNDING_MARKER_SNIPPETS = {" title reads ", " heading reads ", " button is visible", " progress bar "}
+
+
+async def capture_grounding_state(session: BrowserSession) -> GroundingState:
+    return await session.page.evaluate(
+        """() => {
+            const normalize = (value) => (value || "").replace(/\\s+/g, " ").trim();
+            const isVisible = (element) => {
+                if (!element) return false;
+                const style = window.getComputedStyle(element);
+                if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) {
+                    return false;
+                }
+                const rect = element.getBoundingClientRect();
+                if (rect.width <= 0 || rect.height <= 0) {
+                    return false;
+                }
+                if (rect.bottom <= 0 || rect.right <= 0) {
+                    return false;
+                }
+                if (rect.top >= window.innerHeight || rect.left >= window.innerWidth) {
+                    return false;
+                }
+                return true;
+            };
+            const elementText = (element) => {
+                if (!element) return "";
+                const explicitText = normalize(element.innerText || element.textContent || "");
+                if (explicitText) return explicitText;
+                const ariaLabel = normalize(element.getAttribute("aria-label"));
+                if (ariaLabel) return ariaLabel;
+                const value = normalize(element.value);
+                return value;
+            };
+            const visibleProgressBars = Array.from(
+                document.querySelectorAll(
+                    "[role='progressbar'], progress, meter, [aria-valuenow], .progress-track, .progress-bar, [class*='progress-track'], [class*='progress-bar']"
+                )
+            )
+                .filter(isVisible)
+                .map((element) => {
+                    const rect = element.getBoundingClientRect();
+                    if (rect.width < 24 || rect.height < 4) {
+                        return null;
+                    }
+
+                    let fillRatio = null;
+                    const ariaNow = element.getAttribute("aria-valuenow");
+                    const ariaMin = element.getAttribute("aria-valuemin");
+                    const ariaMax = element.getAttribute("aria-valuemax");
+                    const min = ariaMin === null ? 0 : Number(ariaMin);
+                    const max = ariaMax === null ? 100 : Number(ariaMax);
+                    const now = ariaNow === null ? null : Number(ariaNow);
+                    if (now !== null && Number.isFinite(now) && Number.isFinite(min) && Number.isFinite(max) && max > min) {
+                        fillRatio = Math.max(0, Math.min(1, (now - min) / (max - min)));
+                    } else if (element instanceof HTMLProgressElement && Number.isFinite(element.max) && element.max > 0) {
+                        fillRatio = Math.max(0, Math.min(1, element.value / element.max));
+                    } else if (element instanceof HTMLMeterElement && Number.isFinite(element.max) && element.max > element.min) {
+                        fillRatio = Math.max(0, Math.min(1, (element.value - element.min) / (element.max - element.min)));
+                    } else {
+                        let maxChildWidth = 0;
+                        for (const child of Array.from(element.children)) {
+                            if (!isVisible(child)) continue;
+                            const childRect = child.getBoundingClientRect();
+                            if (childRect.height < rect.height * 0.5) continue;
+                            maxChildWidth = Math.max(maxChildWidth, Math.min(childRect.width, rect.width));
+                        }
+                        if (maxChildWidth > 0) {
+                            fillRatio = Math.max(0, Math.min(1, maxChildWidth / rect.width));
+                        }
+                    }
+
+                    if (fillRatio === null) {
+                        return null;
+                    }
+
+                    const labels = [];
+                    const region = element.closest(
+                        "section, article, aside, form, [role='region'], [role='group'], .glass-card, .card, .panel"
+                    );
+                    const labelSelectors = "h1, h2, h3, h4, legend, label, .card-title, .panel-title, .section-title, .title";
+                    if (region) {
+                        for (const candidate of Array.from(region.querySelectorAll(labelSelectors))) {
+                            if (!isVisible(candidate)) continue;
+                            const text = elementText(candidate);
+                            if (text) labels.push(text);
+                        }
+                    }
+                    for (let sibling = element.previousElementSibling; sibling; sibling = sibling.previousElementSibling) {
+                        if (!isVisible(sibling)) continue;
+                        const text = elementText(sibling);
+                        if (text) labels.push(text);
+                    }
+
+                    const label = labels.find(Boolean) || "";
+                    return { label, fillRatio };
+                })
+                .filter(Boolean);
+            const visibleHeadings = Array.from(document.querySelectorAll("h1, h2, h3, h4, [role='heading']"))
+                .filter(isVisible)
+                .map(elementText)
+                .filter(Boolean);
+            const visibleButtons = Array.from(
+                document.querySelectorAll("button, [role='button'], input[type='button'], input[type='submit']")
+            )
+                .filter(isVisible)
+                .map(elementText)
+                .filter(Boolean);
+            const buttonStates = Array.from(
+                document.querySelectorAll("button, [role='button'], input[type='button'], input[type='submit']")
+            )
+                .filter(isVisible)
+                .map((element) => {
+                    const text = elementText(element);
+                    if (!text) return null;
+                    const rect = element.getBoundingClientRect();
+                    let fullyVisible =
+                        rect.top >= 0 &&
+                        rect.left >= 0 &&
+                        rect.bottom <= window.innerHeight &&
+                        rect.right <= window.innerWidth;
+                    for (let ancestor = element.parentElement; ancestor && fullyVisible; ancestor = ancestor.parentElement) {
+                        const style = window.getComputedStyle(ancestor);
+                        const clips =
+                            ["hidden", "clip", "scroll", "auto"].includes(style.overflow) ||
+                            ["hidden", "clip", "scroll", "auto"].includes(style.overflowX) ||
+                            ["hidden", "clip", "scroll", "auto"].includes(style.overflowY);
+                        if (!clips) continue;
+                        const ancestorRect = ancestor.getBoundingClientRect();
+                        if (
+                            rect.top < ancestorRect.top ||
+                            rect.left < ancestorRect.left ||
+                            rect.bottom > ancestorRect.bottom ||
+                            rect.right > ancestorRect.right
+                        ) {
+                            fullyVisible = false;
+                        }
+                    }
+                    return { text, fullyVisible };
+                })
+                .filter(Boolean);
+            const dialogTitles = Array.from(document.querySelectorAll("[role='dialog'], dialog, [aria-modal='true']"))
+                .filter(isVisible)
+                .flatMap((dialog) => {
+                    const titles = [];
+                    const labelledBy = dialog.getAttribute("aria-labelledby");
+                    if (labelledBy) {
+                        const labelElement = document.getElementById(labelledBy);
+                        if (isVisible(labelElement)) {
+                            const text = elementText(labelElement);
+                            if (text) titles.push(text);
+                        }
+                    }
+                    for (const heading of dialog.querySelectorAll("h1, h2, h3, h4, [role='heading']")) {
+                        if (!isVisible(heading)) continue;
+                        const text = elementText(heading);
+                        if (text) titles.push(text);
+                    }
+                    return titles;
+                })
+                .filter(Boolean);
+            return { visibleHeadings, visibleButtons, buttonStates, dialogTitles, progressBars: visibleProgressBars };
+        }"""
+    )
+
+
+# How "positive" each verdict is; grounding may only move a verdict DOWN this
+# scale (toward failed), never up (toward passed).
+_STATUS_POSITIVITY: dict[ClaimStatus, int] = {"failed": 0, "inconclusive": 1, "passed": 2}
+
+
+def ground_claim_verdict(
+    *,
+    claim: str,
+    status: ClaimStatus,
+    finding: str,
+    grounding_state: GroundingState,
+) -> tuple[ClaimStatus, str]:
+    if status == "not_testable":
+        return status, finding
+
+    normalized_claim = _normalize_text(claim)
+    for pattern, checker in (
+        (PROGRESS_BAR_COMPLETELY_FILLED_PATTERN, _check_progress_bar_completely_filled),
+        (BUTTON_FULLY_VISIBLE_PATTERN, _check_button_fully_visible),
+        (MODAL_TITLE_READS_PATTERN, _check_dialog_title_match),
+        (HEADING_READS_PATTERN, _check_heading_match),
+        (PAGE_TITLE_READS_PATTERN, _check_heading_match),
+        (BUTTON_VISIBLE_PATTERN, _check_button_match),
+    ):
+        match = pattern.match(claim.strip())
+        if match is None:
+            continue
+        grounded = checker(grounding_state, match.groupdict())
+        if grounded is None:
+            return status, finding
+        grounded_status, grounded_finding = grounded
+        if grounded_status == status:
+            # Same verdict; prefer the DOM-backed finding, which cites the
+            # concrete evidence (actual headings, fill ratios, button labels).
+            return grounded_status, grounded_finding
+        if _STATUS_POSITIVITY[grounded_status] > _STATUS_POSITIVITY[status]:
+            # Downgrade-only: the DOM can prove expected text absent or a bar
+            # unfilled, but a DOM-visible element may still be covered by an
+            # overlay, transparent, or otherwise invisible in the pixels. The
+            # model judges pixels; it wins whenever grounding would upgrade.
+            logger.info(
+                "Keeping %s verdict for claim %r: grounding suggested an upgrade to %s",
+                status,
+                claim,
+                grounded_status,
+            )
+            return status, finding
+        logger.info(
+            "Downgrading %s verdict to %s for claim %r after grounding check", status, grounded_status, claim
+        )
+        return grounded_status, grounded_finding
+
+    if any(marker in normalized_claim for marker in GROUNDING_MARKER_SNIPPETS):
+        logger.info("No grounding rule matched %s verdict for claim %r", status, claim)
+    return status, finding
+
+
+def _normalize_text(value: str) -> str:
+    return collapse_whitespace(value).casefold()
+
+
+def _normalize_label_for_match(value: str) -> str:
+    text = collapse_whitespace(value).casefold()
+    for quote in ("'", '"', "‘", "’", "“", "”"):
+        text = text.replace(quote, "")
+    for suffix in (" dropdown", " menu", " icon", " button"):
+        text = text.removesuffix(suffix)
+    text = "".join(ch for ch in text if unicodedata.category(ch)[0] not in ("S",) and ch not in "▼▶▾▸◀◂✕×›‹«»")
+    return collapse_whitespace(text)
+
+
+def _label_matches(
+    *,
+    candidate: str,
+    normalized_label: str,
+    fuzzy_label: str,
+    allow_substring: bool = False,
+) -> bool:
+    """Return True if ``candidate`` matches the pre-normalized label values.
+
+    ``normalized_label`` and ``fuzzy_label`` should be produced via
+    :func:`_normalize_text` and :func:`_normalize_label_for_match` respectively.
+    ``allow_substring`` enables the more permissive containment check used for
+    progress-bar labels (which are often surrounded by extra context text).
+    """
+    normalized_candidate = _normalize_text(candidate)
+    fuzzy_candidate = _normalize_label_for_match(candidate)
+    if (
+        normalized_candidate == normalized_label
+        or normalized_candidate.startswith(f"{normalized_label} ")
+        or (fuzzy_label and fuzzy_candidate == fuzzy_label)
+        or (fuzzy_label and fuzzy_candidate.startswith(f"{fuzzy_label} "))
+    ):
+        return True
+    if allow_substring and (
+        normalized_label in normalized_candidate
+        or (fuzzy_label and fuzzy_label in fuzzy_candidate)
+    ):
+        return True
+    return False
+
+
+def _make_label_matcher(label: str, *, allow_substring: bool = False) -> Callable[[str], bool]:
+    """Return a predicate that tests candidate strings against ``label``.
+
+    Pre-normalizes ``label`` once so the predicate can be applied to many
+    candidates without redoing the (collapse-whitespace, casefold, fuzzy-strip)
+    work each call.
+    """
+    normalized_label = _normalize_text(label)
+    fuzzy_label = _normalize_label_for_match(label)
+
+    def matches(candidate: str) -> bool:
+        return _label_matches(
+            candidate=candidate,
+            normalized_label=normalized_label,
+            fuzzy_label=fuzzy_label,
+            allow_substring=allow_substring,
+        )
+
+    return matches
+
+
+def _check_exact_text_match(
+    grounding_state: GroundingState,
+    groups: dict[str, str],
+    *,
+    state_key: str,
+    entity_label: str,
+) -> tuple[ClaimStatus, str] | None:
+    expected = _normalize_text(groups["text"])
+    candidates = grounding_state.get(state_key, [])
+    if any(_normalize_text(text) == expected for text in candidates):
+        return "passed", f"Visible {entity_label} matched {groups['text']!r}."
+    return _no_visible_match_failure(
+        groups["text"],
+        entity_label=entity_label,
+        candidates_label=f"{entity_label}s",
+        candidates=candidates,
+    )
+
+
+def _check_heading_match(
+    grounding_state: GroundingState,
+    groups: dict[str, str],
+) -> tuple[ClaimStatus, str] | None:
+    return _check_exact_text_match(
+        grounding_state,
+        groups,
+        state_key="visibleHeadings",
+        entity_label="heading",
+    )
+
+
+def _check_dialog_title_match(
+    grounding_state: GroundingState,
+    groups: dict[str, str],
+) -> tuple[ClaimStatus, str] | None:
+    return _check_exact_text_match(
+        grounding_state,
+        groups,
+        state_key="dialogTitles",
+        entity_label="dialog title",
+    )
+
+
+def _no_visible_match_failure(
+    label: str, *, entity_label: str, candidates_label: str, candidates: list[str]
+) -> tuple[ClaimStatus, str]:
+    """Build the shared "no visible <entity> matched" failed-tuple.
+
+    Used by ``_check_exact_text_match``, ``_check_button_match``,
+    ``_check_button_fully_visible``, and ``_check_progress_bar_completely_filled``
+    for the branch where ``label`` matches none of the visible candidates.
+    Listing the full candidate set in the message is intentional — it gives the
+    LLM grading the trajectory enough context to distinguish a missing element
+    from a label-mismatch.
+    """
+    return (
+        "failed",
+        f"No visible {entity_label} matched {label!r}. Visible {candidates_label}: {candidates or ['<none>']}.",
+    )
+
+
+def _no_visible_button_failure(
+    grounding_state: GroundingState, label: str
+) -> tuple[ClaimStatus, str]:
+    """Build the shared "no visible button matched" failed-tuple.
+
+    Used by ``_check_button_match`` and ``_check_button_fully_visible`` for the
+    branch where ``label`` matches none of the visible buttons.
+    """
+    visible_buttons = grounding_state.get("visibleButtons", [])
+    return _no_visible_match_failure(
+        label,
+        entity_label="button label",
+        candidates_label="buttons",
+        candidates=visible_buttons,
+    )
+
+
+def _check_button_match(
+    grounding_state: GroundingState,
+    groups: dict[str, str],
+) -> tuple[ClaimStatus, str] | None:
+    # "Is visible" only requires visibility — a partially clipped button is
+    # still visible. The stricter clipped-check belongs to the separate
+    # "is fully visible" pattern (_check_button_fully_visible).
+    matched_states = _matching_button_states(grounding_state, groups["label"])
+    if not matched_states:
+        return _no_visible_button_failure(grounding_state, groups["label"])
+
+    candidate = matched_states[0].get("text", groups["label"])
+    return "passed", f"Visible button label matched {groups['label']!r}: {candidate!r}."
+
+
+def _check_button_fully_visible(
+    grounding_state: GroundingState,
+    groups: dict[str, str],
+) -> tuple[ClaimStatus, str] | None:
+    matched_states = _matching_button_states(grounding_state, groups["label"])
+    if not matched_states:
+        return _no_visible_button_failure(grounding_state, groups["label"])
+
+    fully_visible_state = next((state for state in matched_states if state.get("fullyVisible", False)), None)
+    if fully_visible_state is not None:
+        candidate = fully_visible_state.get("text", groups["label"])
+        return "passed", f"Visible button label matched {groups['label']!r} and is fully visible: {candidate!r}."
+
+    candidate = matched_states[0].get("text", groups["label"])
+    return (
+        "failed",
+        f"Visible button label matched {groups['label']!r}, but {candidate!r} is clipped or not fully visible.",
+    )
+
+
+def _check_progress_bar_completely_filled(
+    grounding_state: GroundingState,
+    groups: dict[str, str],
+) -> tuple[ClaimStatus, str] | None:
+    matched_bars = _matching_progress_bars(grounding_state, groups["label"])
+    if not matched_bars:
+        visible_labels = [bar.get("label", "") for bar in grounding_state.get("progressBars", []) if bar.get("label")]
+        return _no_visible_match_failure(
+            groups["label"],
+            entity_label="progress bar label",
+            candidates_label="progress labels",
+            candidates=visible_labels,
+        )
+
+    fullest_bar = max(matched_bars, key=lambda bar: float(bar.get("fillRatio", 0.0)))
+    fill_ratio = float(fullest_bar.get("fillRatio", 0.0))
+    label = str(fullest_bar.get("label", groups["label"]))
+    if fill_ratio >= 0.99:
+        return "passed", f"Visible progress bar label matched {groups['label']!r} and is fully filled."
+    return (
+        "failed",
+        f"Visible progress bar label matched {groups['label']!r}, but {label!r} is only {fill_ratio:.0%} filled.",
+    )
+
+
+def _matching_button_states(grounding_state: GroundingState, label: str) -> list[ButtonState]:
+    matches = _make_label_matcher(label)
+    return [
+        state
+        for state in grounding_state.get("buttonStates", [])
+        if matches(str(state.get("text", "")))
+    ]
+
+
+def _matching_progress_bars(grounding_state: GroundingState, label: str) -> list[ProgressBarState]:
+    matches = _make_label_matcher(label, allow_substring=True)
+    return [
+        bar
+        for bar in grounding_state.get("progressBars", [])
+        if matches(str(bar.get("label", "")))
+    ]

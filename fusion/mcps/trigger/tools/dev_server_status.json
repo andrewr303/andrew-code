@@ -1,0 +1,16 @@
+{
+  "name": "dev_server_status",
+  "description": "Check the status of the dev server and view recent output. Shows whether it is stopped, starting, ready, or has errors, along with recent log lines.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "lines": {
+        "type": "integer",
+        "default": 50,
+        "description": "Number of recent log lines to return. Defaults to 50."
+      }
+    },
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

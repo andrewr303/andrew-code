@@ -1,0 +1,50 @@
+digraph MetaLoopRouting {
+  graph [rankdir=TB, bgcolor="#FCFCFD", pad="0.3", nodesep="0.38", ranksep="0.45", splines=ortho, fontname="Arial", label="MetaLoop Task Routing — Hard Overrides Before Heuristics", labelloc=t, fontsize=22, fontcolor="#111827"];
+  node [shape=box, style="rounded,filled", fontname="Arial", fontsize=10, margin="0.14,0.10", color="#334155", fillcolor="#FFFFFF"];
+  edge [fontname="Arial", fontsize=9, color="#64748B", fontcolor="#475569", arrowsize=0.72];
+
+  start [label="TaskSpec received", shape=oval, fillcolor="#F8FAFC"];
+  irreversible [label="Irreversible / production / paid-large?", shape=diamond, fillcolor="#FEF3C7", color="#B45309"];
+  human [label="Pause for human approval", fillcolor="#FEF3C7", color="#B45309"];
+  critical [label="Security, auth, migration, public API,\nfinancial/legal boundary, cross-cutting architecture?", shape=diamond, fillcolor="#DBEAFE", color="#1D4ED8"];
+  gpt [label="GPT-5.6 Chief Operator owns task\n+ Fable preflight when high risk", fillcolor="#DBEAFE", color="#1D4ED8"];
+  expertq [label="High complexity, novelty, ambiguity,\nlarge context, or broad blast radius?", shape=diamond, fillcolor="#EDE9FE", color="#7C3AED"];
+  expert [label="Expert lane\nGrok 4.5 or GLM 5.2/OpenCode", fillcolor="#EDE9FE", color="#7C3AED"];
+  fastq [label="Low risk, well specified, repetitive,\nlatency-sensitive, easy to verify?", shape=diamond, fillcolor="#CFFAFE", color="#0891B2"];
+  fast [label="Fast lane\nGemini Flash/Agy or Gemini Flash/Copilot", fillcolor="#CFFAFE", color="#0891B2"];
+  default [label="GPT chooses expert or fast using\nprovider strengths + live availability + ledger", fillcolor="#E2E8F0"];
+  validate [label="Local schema + acceptance checks", fillcolor="#DCFCE7", color="#15803D"];
+  pass [label="Return to integration", shape=oval, fillcolor="#DCFCE7", color="#15803D"];
+  fail [label="Failure class?", shape=diamond, fillcolor="#FEE2E2", color="#B91C1C"];
+  alternate [label="One retry on alternate worker\nin same tier", fillcolor="#FEE2E2", color="#B91C1C"];
+  promote [label="Promote fast → expert", fillcolor="#FEE2E2", color="#B91C1C"];
+  takeover [label="GPT chief takeover", fillcolor="#FEE2E2", color="#B91C1C"];
+  advisor [label="Fable systemic critique\n(plan/decomposition/risk)", fillcolor="#FED7AA", color="#C2410C", style="rounded,filled,dashed"];
+  stop [label="Stop with partial results + blockers\nafter bounded repair rounds", shape=oval, fillcolor="#FEE2E2", color="#B91C1C"];
+
+  start -> irreversible;
+  irreversible -> human [label="yes"];
+  irreversible -> critical [label="no"];
+  human -> critical [label="approved"];
+  critical -> gpt [label="yes"];
+  critical -> expertq [label="no"];
+  expertq -> expert [label="yes"];
+  expertq -> fastq [label="no"];
+  fastq -> fast [label="yes"];
+  fastq -> default [label="no / mixed"];
+  gpt -> validate;
+  expert -> validate;
+  fast -> validate;
+  default -> validate;
+  validate -> pass [label="pass"];
+  validate -> fail [label="fail / low confidence"];
+  fail -> alternate [label="transient or worker-specific"];
+  fail -> promote [label="fast lane exhausted"];
+  fail -> takeover [label="expert conflict / integration risk"];
+  fail -> advisor [label="systemic / repeated / plan flaw"];
+  alternate -> validate [label="attempt ≤ 2"];
+  promote -> expert;
+  takeover -> validate;
+  advisor -> takeover [label="revised strategy", style=dashed];
+  fail -> stop [label="budget or repair cap reached"];
+}

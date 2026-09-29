@@ -1,0 +1,67 @@
+"""Shared parsing helpers for tool-call arguments."""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from frontend_visualqa.errors import BrowserActionError
+
+
+def _function_obj(tool_call: Any) -> Any:
+    """Return ``tool_call.function`` if present, else ``tool_call`` itself.
+
+    Chat-completions tool calls expose their name/arguments on a nested
+    ``function`` attribute, while flatter test stubs / shorthand objects
+    sometimes attach them directly to the tool-call. Shared by every
+    function below that needs to read off a tool call.
+    """
+    return getattr(tool_call, "function", tool_call)
+
+
+def tool_call_name(tool_call: Any) -> str:
+    """Return ``tool_call.function.name`` (or ``tool_call.name``), defaulting to ``""``."""
+    return getattr(_function_obj(tool_call), "name", "")
+
+
+def tool_calls_from_message(message: Any) -> list[Any]:
+    """Return ``message.tool_calls`` as a list, defaulting to ``[]`` when absent or falsy.
+
+    Shared by the hook adapter's ``on_llm_end`` and the claim-verifier turn loop,
+    both of which read tool calls off an assistant message the same tolerant way.
+    """
+    return list(getattr(message, "tool_calls", []) or [])
+
+
+def tool_call_arguments_as_text(tool_call: Any) -> str:
+    """Return ``tool_call``'s raw arguments as text, best-effort.
+
+    Unlike :func:`parse_tool_arguments`, this never raises: dict arguments are
+    JSON-encoded, string arguments are passed through, and anything else falls
+    back to ``str()``. Useful for callers that need a text representation even
+    when the arguments are malformed (e.g. redacting an unparseable payload).
+    """
+    arguments = getattr(_function_obj(tool_call), "arguments", "")
+    if isinstance(arguments, str):
+        return arguments
+    if isinstance(arguments, dict):
+        try:
+            return json.dumps(arguments)
+        except TypeError:
+            pass
+    return str(arguments)
+
+
+def parse_tool_arguments(tool_call: Any) -> dict[str, Any]:
+    """Parse chat-completions tool arguments into a JSON object."""
+
+    arguments = getattr(_function_obj(tool_call), "arguments", "{}") or "{}"
+    if isinstance(arguments, dict):
+        return arguments
+    try:
+        parsed = json.loads(arguments)
+    except json.JSONDecodeError as exc:
+        raise BrowserActionError(f"tool arguments were not valid JSON: {arguments}") from exc
+    if not isinstance(parsed, dict):
+        raise BrowserActionError(f"tool arguments must decode to an object: {arguments}")
+    return parsed

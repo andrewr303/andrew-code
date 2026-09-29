@@ -1,0 +1,98 @@
+{
+  "name": "list_runs",
+  "description": "List all runs for a project. Use this tool when you need to search for a run or list all runs for a project.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "projectRef": {
+        "type": "string",
+        "description": "The trigger.dev project ref, starts with proj_. We will attempt to automatically detect the project ref if running inside a directory that includes a trigger.config.ts file, or if you pass the --project-ref option to the MCP server."
+      },
+      "configPath": {
+        "type": "string",
+        "description": "The path to the trigger.config.ts file. Only used when the trigger.config.ts file is not at the root dir (like in a monorepo setup). If not provided, we will try to find the config file in the current working directory"
+      },
+      "environment": {
+        "type": "string",
+        "enum": [
+          "dev",
+          "staging",
+          "prod",
+          "preview"
+        ],
+        "description": "The environment to get tasks for",
+        "default": "dev"
+      },
+      "branch": {
+        "type": "string",
+        "description": "The branch to get tasks for, only used for preview environments"
+      },
+      "cursor": {
+        "type": "string",
+        "description": "The cursor to use for pagination, starts with run_"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "The number of runs to list in a single page. Up to 100"
+      },
+      "status": {
+        "type": "string",
+        "enum": [
+          "PENDING_VERSION",
+          "QUEUED",
+          "DEQUEUED",
+          "EXECUTING",
+          "WAITING",
+          "COMPLETED",
+          "CANCELED",
+          "FAILED",
+          "CRASHED",
+          "SYSTEM_FAILURE",
+          "DELAYED",
+          "EXPIRED",
+          "TIMED_OUT"
+        ],
+        "description": "Filter for runs with this run status"
+      },
+      "taskIdentifier": {
+        "type": "string",
+        "description": "Filter for runs that match this task identifier"
+      },
+      "version": {
+        "type": "string",
+        "description": "Filter for runs that match this version, e.g. 20250808.3"
+      },
+      "tag": {
+        "type": "string",
+        "description": "Filter for runs that include this tag"
+      },
+      "from": {
+        "type": "string",
+        "description": "Filter for runs created after this ISO 8601 timestamp"
+      },
+      "to": {
+        "type": "string",
+        "description": "Filter for runs created before this ISO 8601 timestamp"
+      },
+      "period": {
+        "type": "string",
+        "description": "Filter for runs created in the last N time period. e.g. 7d, 30d, 365d"
+      },
+      "machine": {
+        "type": "string",
+        "enum": [
+          "micro",
+          "small-1x",
+          "small-2x",
+          "medium-1x",
+          "medium-2x",
+          "large-1x",
+          "large-2x"
+        ],
+        "description": "Filter for runs that match this machine preset"
+      }
+    },
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

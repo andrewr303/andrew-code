@@ -1,0 +1,30 @@
+{
+  "name": "pricing",
+  "description": "Azure Retail Pricing operations - Get Azure retail pricing for SKUs, services, regions and compare pricing across different options. For Bicep/ARM template cost estimation, read the template file, extract resource SKUs, then call 'pricing get' for each resource to build a cost estimate.This tool is a hierarchical MCP command router.\r\nSub commands are routed to MCP servers that require specific fields inside the \"parameters\" object.\r\nTo invoke a command, set \"command\" and wrap its args in \"parameters\".\r\nSet \"learn=true\" to discover available sub commands.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "intent": {
+        "type": "string",
+        "description": "The intent of the azure operation to perform."
+      },
+      "command": {
+        "type": "string",
+        "description": "The command to execute against the specified tool."
+      },
+      "parameters": {
+        "type": "object",
+        "description": "The parameters to pass to the tool command."
+      },
+      "learn": {
+        "type": "boolean",
+        "description": "To learn about the tool and its supported child tools and parameters.",
+        "default": false
+      }
+    },
+    "required": [
+      "intent"
+    ],
+    "additionalProperties": false
+  }
+}

@@ -1,0 +1,424 @@
+from __future__ import annotations
+
+import asyncio
+import inspect
+import json
+from typing import Any
+
+import pytest
+
+import frontend_visualqa.runner as runner_module
+from fakes import (
+    assert_claim_result_payload_shape,
+    assert_pending_close_task_runs_to_completion,
+    import_or_skip,
+    make_claim_result,
+)
+from frontend_visualqa import __version__
+from frontend_visualqa.schemas import (
+    BrowserConfig,
+    BrowserMode,
+    BrowserStatusResult,
+    ClaimResult,
+    RunResult,
+    ScreenshotResult,
+    ViewportConfig,
+)
+
+
+def _sample_claim_result(*, url: str, viewport: ViewportConfig) -> ClaimResult:
+    return make_claim_result(
+        claim="The edit modal opens when clicking the task row",
+        status="passed",
+        finding="The modal is visible.",
+        url=url,
+        viewport=viewport,
+        proof={
+            "screenshot_path": "artifacts/run-fake/claim-01/step-01.webp",
+            "step": 1,
+            "after_action": "left_click([419, 348])",
+            "text": None,
+            "text_path": None,
+        },
+        trace={
+            "steps_taken": 1,
+            "wrong_page_recovered": False,
+            "screenshot_paths": [
+                "artifacts/run-fake/claim-01/step-00.webp",
+                "artifacts/run-fake/claim-01/step-01.webp",
+            ],
+            "actions": ["left_click([419, 348])"],
+            "trace_path": "artifacts/run-fake/claim-01/trace.json",
+        },
+    )
+
+
+def _import_mcp_server_module():
+    return import_or_skip("frontend_visualqa.mcp_server")
+
+
+def _persistent_browser_config(**overrides: Any) -> BrowserConfig:
+    """Build a persistent-mode BrowserConfig pointed at a fixed test profile dir.
+
+    ``test_close_runners_sync_*`` and ``test_configure_server_*`` each independently
+    constructed this identical ``BrowserConfig(mode=BrowserMode.persistent,
+    user_data_dir="/tmp/profile")`` literal. This is the shared constructor they
+    delegate to now.
+    """
+    return BrowserConfig(mode=BrowserMode.persistent, user_data_dir="/tmp/profile", **overrides)
+
+
+class FakeRunner:
+    def __init__(self) -> None:
+        self.run_calls: list[dict[str, Any]] = []
+        self.run_request_calls: list[Any] = []
+        self.screenshot_calls: list[dict[str, Any]] = []
+        self.browser_calls: list[dict[str, Any]] = []
+        self.browser_request_calls: list[Any] = []
+        self.close_calls = 0
+
+    async def run(self, **kwargs: Any) -> RunResult:
+        self.run_calls.append(kwargs)
+        viewport = kwargs.get("viewport", ViewportConfig())
+        return RunResult(
+            overall_status="completed",
+            session_key=kwargs.get("session_key", "default"),
+            run_name=kwargs.get("run_name"),
+            results=[_sample_claim_result(url=kwargs["url"], viewport=viewport)],
+            summary="1/1 claims passed.",
+            artifacts_dir="artifacts/run-fake",
+        )
+
+    async def run_request(self, request: Any) -> RunResult:
+        self.run_request_calls.append(request)
+        return RunResult(
+            overall_status="completed",
+            session_key=request.session_key,
+            run_name=request.run_name,
+            results=[_sample_claim_result(url=request.url, viewport=request.viewport)],
+            summary="1/1 claims passed.",
+            artifacts_dir="artifacts/run-fake",
+        )
+
+    async def take_screenshot(self, **kwargs: Any) -> ScreenshotResult:
+        self.screenshot_calls.append(kwargs)
+        return ScreenshotResult(
+            session_key=kwargs.get("session_key", "default"),
+            run_name=kwargs.get("run_name"),
+            final_url=kwargs["url"],
+            viewport=kwargs.get("viewport", ViewportConfig()),
+            screenshot_path="artifacts/run-fake/screenshot.webp",
+        )
+
+    async def manage_browser(self, **kwargs: Any) -> BrowserStatusResult:
+        self.browser_calls.append(kwargs)
+        return BrowserStatusResult(browser_running=True, sessions=[])
+
+    async def manage_browser_request(self, request: Any) -> BrowserStatusResult:
+        self.browser_request_calls.append(request)
+        return BrowserStatusResult(browser_running=True, sessions=[])
+
+    async def close(self) -> None:
+        self.close_calls += 1
+
+
+async def _call_tool(module: Any, tool_name: str, arguments: dict[str, Any]) -> Any:
+    if hasattr(module, "mcp"):
+        response = await module.mcp.call_tool(tool_name, arguments)
+        if isinstance(response, tuple):
+            assert response, "tool returned an empty tuple"
+            response = response[0]
+        if isinstance(response, list):
+            assert response, "tool returned no content"
+            return json.loads(response[0].text)
+        return response
+
+    if hasattr(module, tool_name):
+        target = getattr(module, tool_name)
+        if inspect.iscoroutinefunction(target):
+            return await target(**arguments)
+        return target(**arguments)
+
+    raise AssertionError(f"Unable to call {tool_name}: module does not expose a direct handler or FastMCP instance")
+
+
+def _install_fake_runner(module: Any, fake_runner: FakeRunner, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(module, "VisualQARunner", lambda *args, **kwargs: fake_runner, raising=False)
+    monkeypatch.setattr(module, "runner", fake_runner, raising=False)
+    monkeypatch.setattr(module, "_runner", fake_runner, raising=False)
+    monkeypatch.setattr(module, "RUNNER", fake_runner, raising=False)
+    if hasattr(module, "_runners_by_loop"):
+        monkeypatch.setitem(module._runners_by_loop, module._loop_key(), fake_runner)
+    if hasattr(module, "get_runner"):
+        monkeypatch.setattr(module, "get_runner", lambda: fake_runner, raising=False)
+    if hasattr(module, "_get_runner"):
+
+        async def _return_runner() -> FakeRunner:
+            return fake_runner
+
+        monkeypatch.setattr(module, "_get_runner", _return_runner, raising=False)
+
+
+def _module_with_fake_runner(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, FakeRunner]:
+    """Import the mcp_server module and wire a fresh `FakeRunner` into it.
+
+    Shared by tests that only need the module and its fake runner installed before calling a tool,
+    without any of the additional state-reset steps `test_close_runners_sync_*` needs.
+    """
+    module = _import_mcp_server_module()
+    fake_runner = FakeRunner()
+    _install_fake_runner(module, fake_runner, monkeypatch)
+    return module, fake_runner
+
+
+def _reset_server_module_state(module: Any) -> None:
+    module._runners_by_loop.clear()
+    module._runner_locks_by_loop.clear()
+    if hasattr(module, "_server_browser_config"):
+        module._server_browser_config = None
+    if hasattr(module, "_config_frozen"):
+        module._config_frozen = False
+
+
+@pytest.mark.asyncio
+async def test_mcp_server_registers_expected_tools() -> None:
+    module = _import_mcp_server_module()
+
+    if hasattr(module, "mcp"):
+        tools = await module.mcp.list_tools()
+        tool_names = {tool.name for tool in tools}
+    else:
+        tool_names = {
+            name for name in ("verify_visual_claims", "take_screenshot", "manage_browser") if hasattr(module, name)
+        }
+
+    assert {"verify_visual_claims", "take_screenshot", "manage_browser"} <= tool_names
+
+
+@pytest.mark.asyncio
+async def test_mcp_server_verify_visual_claims_delegates_to_runner(monkeypatch: pytest.MonkeyPatch) -> None:
+    module, fake_runner = _module_with_fake_runner(monkeypatch)
+
+    payload = {
+        "url": "http://localhost:3000/tasks/123",
+        "claims": ["The edit modal opens when clicking the task row"],
+        "viewport": {"width": 1280, "height": 800, "device_scale_factor": 1},
+        "session_key": "frontend-visualqa",
+        "run_name": "auth-ci",
+        "reuse_session": True,
+        "reset_between_claims": True,
+        "visualize": True,
+        "max_steps_per_claim": 4,
+        "navigation_hint": "Open the first task row.",
+    }
+    result = await _call_tool(module, "verify_visual_claims", payload)
+
+    assert fake_runner.run_calls
+    forwarded = fake_runner.run_calls[0]
+    assert forwarded["url"] == payload["url"]
+    assert forwarded["claims"] == payload["claims"]
+    assert forwarded["run_name"] == "auth-ci"
+    assert forwarded["visualize"] is True
+    assert result["overall_status"] == "completed"
+    assert result["runner_version"] == __version__
+    assert result["run_name"] == "auth-ci"
+    claim_result = result["results"][0]
+    assert_claim_result_payload_shape(claim_result)
+    assert claim_result["finding"] == "The modal is visible."
+    assert claim_result["proof"]["after_action"] == "left_click([419, 348])"
+    assert claim_result["page"]["url"] == payload["url"]
+    assert claim_result["trace"]["steps_taken"] == 1
+
+
+@pytest.mark.asyncio
+async def test_mcp_server_helpers_delegate_to_runner(monkeypatch: pytest.MonkeyPatch) -> None:
+    module, fake_runner = _module_with_fake_runner(monkeypatch)
+
+    screenshot_result = await _call_tool(
+        module,
+        "take_screenshot",
+        {
+            "url": "http://localhost:3000/tasks/123",
+            "viewport": {"width": 390, "height": 844, "device_scale_factor": 1},
+            "session_key": "mobile",
+            "run_name": "mobile-home",
+        },
+    )
+    browser_result = await _call_tool(
+        module,
+        "manage_browser",
+        {
+            "action": "status",
+            "session_key": "mobile",
+        },
+    )
+
+    assert fake_runner.screenshot_calls
+    assert fake_runner.browser_calls
+    assert screenshot_result["final_url"] == "http://localhost:3000/tasks/123"
+    assert screenshot_result["run_name"] == "mobile-home"
+    assert browser_result["browser_running"] is True
+
+
+@pytest.mark.asyncio
+async def test_mcp_server_manage_browser_login_passes_url_to_runner(monkeypatch: pytest.MonkeyPatch) -> None:
+    module, fake_runner = _module_with_fake_runner(monkeypatch)
+
+    await _call_tool(
+        module,
+        "manage_browser",
+        {
+            "action": "login",
+            "session_key": "auth",
+            "url": "http://localhost:3000/sign-in",
+        },
+    )
+
+    assert len(fake_runner.browser_calls) == 1
+    request = fake_runner.browser_calls[0]
+    assert request["action"] == "login"
+    assert request["session_key"] == "auth"
+    assert request["url"] == "http://localhost:3000/sign-in"
+
+
+def test_close_runners_sync_closes_cached_runners(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _import_mcp_server_module()
+    fake_runner = FakeRunner()
+    _reset_server_module_state(module)
+    monkeypatch.setitem(module._runners_by_loop, 123, fake_runner)
+    module._server_browser_config = _persistent_browser_config()
+    module._config_frozen = True
+
+    module.close_runners_sync()
+
+    assert fake_runner.close_calls == 1
+    assert module._runners_by_loop == {}
+    assert module._runner_locks_by_loop == {}
+    assert module._server_browser_config is None
+    assert module._config_frozen is False
+
+
+@pytest.mark.asyncio
+async def test_configure_server_passes_browser_config_to_new_runner(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _import_mcp_server_module()
+    _reset_server_module_state(module)
+    fake_runner = FakeRunner()
+    captured: dict[str, Any] = {}
+
+    def fake_visual_qa_runner(*, browser_config: BrowserConfig | None = None, **kwargs: Any) -> FakeRunner:
+        del kwargs
+        captured["browser_config"] = browser_config
+        return fake_runner
+
+    monkeypatch.setattr(runner_module, "VisualQARunner", fake_visual_qa_runner)
+
+    browser_config = _persistent_browser_config(headless=False)
+    module.configure_server(browser_config)
+    runner = await module._get_runner()
+
+    assert runner is fake_runner
+    assert captured["browser_config"] == browser_config
+    assert module._config_frozen is True
+
+
+@pytest.mark.asyncio
+async def test_configure_server_rejects_changes_after_runner_creation(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _import_mcp_server_module()
+    _reset_server_module_state(module)
+    fake_runner = FakeRunner()
+
+    monkeypatch.setattr(runner_module, "VisualQARunner", lambda **kwargs: fake_runner)
+
+    await module._get_runner()
+
+    with pytest.raises(RuntimeError, match="Cannot change browser config after runner has been created"):
+        module.configure_server(_persistent_browser_config())
+
+
+def test_close_runners_sync_resets_config_without_cached_runners() -> None:
+    module = _import_mcp_server_module()
+    _reset_server_module_state(module)
+    module._server_browser_config = _persistent_browser_config()
+
+    module.close_runners_sync()
+
+    assert module._server_browser_config is None
+    assert module._config_frozen is False
+
+
+@pytest.mark.asyncio
+async def test_close_runners_sync_resets_state_immediately_inside_running_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _import_mcp_server_module()
+    fake_runner = FakeRunner()
+    _reset_server_module_state(module)
+    monkeypatch.setitem(module._runners_by_loop, module._loop_key(), fake_runner)
+    module._server_browser_config = _persistent_browser_config()
+    module._config_frozen = True
+
+    module.close_runners_sync()
+
+    assert module._runners_by_loop == {}
+    assert module._runner_locks_by_loop == {}
+    assert module._server_browser_config is None
+    assert module._config_frozen is False
+
+    await asyncio.sleep(0)
+
+    assert fake_runner.close_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_close_runners_sync_holds_strong_reference_until_task_completes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression guard: a bare ``loop.create_task(...)`` with no retained reference is
+    only weakly held by the loop and can be garbage-collected before the runner
+    finishes closing, silently dropping browser cleanup. ``close_runners_sync`` must
+    keep the task alive in ``_pending_close_tasks`` until it finishes, then release it
+    (mirroring ``navigator_client._schedule_close``'s fix for the identical hazard).
+    """
+    module = _import_mcp_server_module()
+    release = asyncio.Event()
+    closed: list[bool] = []
+
+    class SlowClosingRunner:
+        async def close(self) -> None:
+            await release.wait()
+            closed.append(True)
+
+    _reset_server_module_state(module)
+    monkeypatch.setitem(module._runners_by_loop, module._loop_key(), SlowClosingRunner())
+    module._server_browser_config = _persistent_browser_config()
+    module._config_frozen = True
+
+    module.close_runners_sync()
+    await assert_pending_close_task_runs_to_completion(module, release, closed)
+
+
+def test_run_stdio_server_runs_then_closes_runners() -> None:
+    module = _import_mcp_server_module()
+    calls: list[str] = []
+
+    class FakeServer:
+        def run(self, *, transport: str) -> None:
+            calls.append(f"run:{transport}")
+
+    module.run_stdio_server(lambda: FakeServer(), lambda: calls.append("closed"))
+
+    assert calls == ["run:stdio", "closed"]
+
+
+def test_run_stdio_server_closes_runners_even_if_run_raises() -> None:
+    module = _import_mcp_server_module()
+    calls: list[str] = []
+
+    class FailingServer:
+        def run(self, *, transport: str) -> None:
+            raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        module.run_stdio_server(lambda: FailingServer(), lambda: calls.append("closed"))
+
+    assert calls == ["closed"]

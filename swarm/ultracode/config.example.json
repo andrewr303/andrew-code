@@ -1,0 +1,173 @@
+{
+  "_README": "Copy this file to config.json and edit THAT (config.json is gitignored so your keys never get committed). Keep only the models you have a plan/key for and delete the rest. Comments are any key starting with '_' and are ignored. Full guide: README.md + docs/ADD_A_MODEL.md.",
+
+  "_proxy": "Defaults are fine for almost everyone.",
+  "proxy": {
+    "_listen_port": "Local port the proxy listens on (the launchers point Claude Code here). Change only if 8141 is taken.",
+    "listen_port": 8141,
+    "_anthropic_upstream": "Where the real Anthropic API lives. Don't change unless you know why.",
+    "anthropic_upstream": "https://api.anthropic.com",
+    "_max_tokens_floor": "Ultracode raises every request to at least this many max_tokens. 64000 matches real ultracode.",
+    "max_tokens_floor": 64000,
+    "_include_stock_models": "Always show the real Claude models (Opus/Sonnet/Haiku) in /model alongside your configured ones, so real Claude never disappears from the picker even when there's no Anthropic key to list them. true (default) is what you want; set false to show ONLY your configured models. Env override: UC_INCLUDE_STOCK_MODELS=0.",
+    "include_stock_models": true,
+    "_learn_stock_models": "Learn the real Claude model ids from any successful upstream /v1/models fetch and cache them to disk, so a newly released Opus appears in /model automatically with no update to this tool. true (default); set false to use only the built-in baseline list. Env override: UC_STOCK_LEARN=0.",
+    "learn_stock_models": true
+  },
+
+  "_models": "What shows in Claude Code's /model picker. id MUST start with 'claude' or 'anthropic' (others are silently dropped). display_name is the label you see. 'claude-auto' is the Auto Router (see the 'router' section below): pick it and the proxy chooses the cheapest configured backend that can handle each task.",
+  "models": [
+    { "id": "claude-auto",              "display_name": "Auto (smart routing)" },
+    { "id": "claude-opus",              "display_name": "Claude Opus 4.8 (real)" },
+    { "id": "claude-gpt-5.5-codex",     "display_name": "GPT-5.5 (Codex OAuth)" },
+    { "id": "claude-minimax-m3",        "display_name": "MiniMax-M3" },
+    { "id": "claude-mimo",              "display_name": "MiMo v2.5 Pro" },
+    { "id": "claude-deepseek-v4-pro",   "display_name": "DeepSeek V4 Pro" },
+    { "id": "claude-deepseek-v4-flash", "display_name": "DeepSeek V4 Flash" },
+    { "id": "claude-step-flash",        "display_name": "Step Flash" },
+    { "id": "claude-ollama-cloud",      "display_name": "Ollama Cloud" },
+    { "id": "claude-opencode",          "display_name": "DeepSeek V4 Pro (OpenCode Go)" },
+    { "id": "claude-openrouter",        "display_name": "Llama 3.3 70B (OpenRouter)" },
+    { "id": "claude-local",             "display_name": "Local model" },
+    { "id": "claude-composer",          "display_name": "Composer 2.5 (Cursor, experimental)" }
+  ],
+
+  "_routes": "Where each model id above goes. The key MUST match an id in 'models'. Put your API key right here (config.json is gitignored) or use ${ENV_VAR} and set it in your environment. type: omit/'anthropic' = passthrough to Anthropic; 'openai_compat' = any OpenAI Chat Completions backend (with tool-calling); 'codex_oauth' = GPT-5.5 via `codex login`; 'cursor_agent' = Cursor Composer via the cursor-agent CLI (experimental). For openai_compat, 'upstream' is the base URL exactly as the provider documents it (usually ends in /v1) - the proxy appends /chat/completions. Optional: 'headers' {}, 'max_output_tokens' (default 8192).",
+  "routes": {
+    "claude-auto": {
+      "_": "The Auto Router. type:auto means this is NOT a real backend - the proxy asks the cheap 'classifier' model (configured in the 'router' block below) to score the candidates and routes each task to the cheapest one that clears the quality bar. Pick 'Auto (smart routing)' in /model or the selector.",
+      "type": "auto"
+    },
+    "claude-opus": {
+      "_": "Real Anthropic Claude Opus 4.8, as a first-class pick. Anthropic passthrough: no 'type' (forwards unchanged), no 'upstream' (defaults to api.anthropic.com), no 'auth' (reuses your existing Claude OAuth login - no API key needed). The id is 'claude-opus' ON PURPOSE: it must NOT be 'claude-opus-4-8', because the dynamic-workflow engine hardcodes that exact id for its background traffic and the orchestrator/worker layer remaps it onto your pick - so a route named 'claude-opus-4-8' would be ambiguous with stock traffic. A distinct id ('claude-opus') is recognized as a deliberate orchestrator/worker pick and as a routing-directive target ([[route:opus]]). The 'model' below is what's actually sent upstream. (This is also what include_stock_models can't give you on its own: real Opus as a DISTINCT orchestrator while a different/cheaper model runs the workers.)",
+      "model": "claude-opus-4-8"
+    },
+    "claude-gpt-5.5-codex": {
+      "_": "Needs `codex login` once; no API key. effort/tier via UC_CODEX_EFFORT/UC_CODEX_SERVICE_TIER.",
+      "type": "codex_oauth",
+      "model": "gpt-5.5"
+    },
+    "claude-minimax-m3": {
+      "_": "MiniMax-M3 via api.minimax.io (OpenAI-compatible). Get a key at platform.minimax.io. IMPORTANT: 'body.reasoning_split' keeps M3's <think> chain-of-thought OUT of the visible answer (delivered as reasoning_content instead). Drop it and you'll see raw <think>...</think> in replies. M3 supports ~1M context; max_output_tokens up to 64000.",
+      "type": "openai_compat",
+      "upstream": "https://api.minimax.io/v1",
+      "model": "MiniMax-M3",
+      "auth": "Bearer REPLACE_WITH_YOUR_MINIMAX_KEY",
+      "max_output_tokens": 64000,
+      "body": { "reasoning_split": true }
+    },
+    "claude-mimo": {
+      "type": "openai_compat",
+      "upstream": "https://token-plan-sgp.xiaomimimo.com/v1",
+      "model": "mimo-v2.5-pro",
+      "auth": "Bearer REPLACE_WITH_YOUR_MIMO_KEY"
+    },
+    "claude-deepseek-v4-pro": {
+      "type": "openai_compat",
+      "upstream": "https://api.deepseek.com/v1",
+      "model": "deepseek-v4-pro",
+      "auth": "Bearer REPLACE_WITH_YOUR_DEEPSEEK_KEY"
+    },
+    "claude-deepseek-v4-flash": {
+      "type": "openai_compat",
+      "upstream": "https://api.deepseek.com/v1",
+      "model": "deepseek-v4-flash",
+      "auth": "Bearer REPLACE_WITH_YOUR_DEEPSEEK_KEY"
+    },
+    "claude-step-flash": {
+      "_": "StepFun. Set model to the id your plan exposes (e.g. step-3.5-flash).",
+      "type": "openai_compat",
+      "upstream": "https://api.stepfun.ai/v1",
+      "model": "step-3.5-flash",
+      "auth": "Bearer REPLACE_WITH_YOUR_STEPFUN_KEY"
+    },
+    "claude-ollama-cloud": {
+      "_": "Ollama Cloud plan. Swap model for any cloud model (deepseek-v4-pro, qwen3-coder, gpt-oss:120b, ...).",
+      "type": "openai_compat",
+      "upstream": "https://ollama.com/v1",
+      "model": "gpt-oss:120b",
+      "auth": "Bearer REPLACE_WITH_YOUR_OLLAMA_KEY"
+    },
+    "claude-opencode": {
+      "_": "OpenCode Go SUBSCRIPTION (OpenCode Zen 'Go' plan). It is an OpenAI-compatible API: base URL ends in /zen/go/v1 and the proxy appends /chat/completions. Model ids are BARE - e.g. 'deepseek-v4-pro' (also deepseek-v4-flash, kimi-k2.6, glm-5.1, minimax-m3, ...), NOT 'opencode-go/deepseek-v4-pro' (the 'opencode-go/' prefix is the `opencode` CLI's provider namespace, not the API id). The endpoint sits behind Cloudflare, which blocks the default client User-Agent with '403 error code: 1010', so a User-Agent header is required. NOTE: https://opencode.ai/zen/v1 (no /go) is the SEPARATE pay-as-you-go endpoint, not this subscription.",
+      "type": "openai_compat",
+      "upstream": "https://opencode.ai/zen/go/v1",
+      "model": "deepseek-v4-pro",
+      "auth": "Bearer REPLACE_WITH_YOUR_OPENCODE_KEY",
+      "headers": { "User-Agent": "openclaw/2026.4.20" }
+    },
+    "claude-openrouter": {
+      "_": "Any OpenRouter model - swap model for any slug OpenRouter lists.",
+      "type": "openai_compat",
+      "upstream": "https://openrouter.ai/api/v1",
+      "model": "meta-llama/llama-3.3-70b-instruct",
+      "auth": "Bearer REPLACE_WITH_YOUR_OPENROUTER_KEY"
+    },
+    "claude-local": {
+      "_": "A local OpenAI-compatible server (Ollama :11434, llama.cpp :8080, LM Studio :1234). The key is usually ignored.",
+      "type": "openai_compat",
+      "upstream": "http://127.0.0.1:11434/v1",
+      "model": "your-local-model",
+      "auth": "Bearer local"
+    },
+    "claude-composer": {
+      "_": "EXPERIMENTAL. Cursor Composer via the cursor-agent CLI (run `cursor-agent login`). Best for reasoning/answers; tool-calling is a best-effort bridge. See docs/ADD_A_MODEL.md.",
+      "type": "cursor_agent",
+      "model": "composer-2.5"
+    }
+  },
+
+  "_router": "The Auto Router (optional). When enabled, picking 'claude-auto' makes the proxy send a tiny scoring request to the 'classifier' model, which rates each candidate 0-1 on how likely it is to nail THIS task; the proxy then routes the real request to the CHEAPEST candidate that clears 'threshold'. Trivial turns -> cheap model, hard turns -> your strongest one, automatically. Candidate ids must be routes above; any you delete are skipped, so this keeps working with whatever subset you keep. The classifier scores on capability only (it never sees cost), and decisions are cached per task. Full guide: docs/AUTO_ROUTER.md.",
+  "router": {
+    "enabled": true,
+    "_id": "Picker id that triggers routing. Must also exist in 'models' + 'routes' (as type:auto). Default claude-auto.",
+    "id": "claude-auto",
+    "_classifier": "A route id (from 'routes' above) used as the cheap, fast scorer. Use the cheapest fast model you kept. If it's missing/unavailable the router falls back to the cheapest candidate deterministically.",
+    "classifier": "claude-mimo",
+    "_threshold": "0..1 success-probability bar. The cheapest candidate scoring >= this wins. Lower = more aggressive cost savings; higher = escalate to strong models sooner. 0.7 is a good default.",
+    "threshold": 0.7,
+    "_default": "Candidate id used when the classifier can't run at all (e.g. it's offline). Defaults to the cheapest candidate.",
+    "default": "claude-mimo",
+    "_cache": "Reuse one classification across a task's tool-call round-trips (recommended; avoids re-scoring every request).",
+    "cache": true,
+    "_candidates": "The backends the router chooses among. id = a route above. cost = a RELATIVE price weight (any unit; only the ordering matters for the cheapest-among-viable tie-break). supports_images = can it accept images (image tasks skip models that can't). card = a short capability description the classifier reads to score it - be honest about strengths/weaknesses; this is what makes routing smart.",
+    "candidates": [
+      {
+        "id": "claude-minimax-m3",
+        "cost": 0.3,
+        "supports_images": false,
+        "card": "Very cheap and fast, ~1M context. Strong on well-scoped single-file edits, boilerplate, codegen from a clear spec, simple refactors, log/CSV data wrangling, and short Q&A. Weak on large multi-file refactors, subtle multi-step debugging, niche toolchains, and tasks needing deep domain knowledge."
+      },
+      {
+        "id": "claude-mimo",
+        "cost": 1.0,
+        "supports_images": false,
+        "card": "Cheap, capable generalist coder. Good for standard servers/CRUD/infra, data processing, conventional multi-file edits of moderate size, code migrations, and tool-use/test loops. Less reliable on hard algorithmic reasoning, exotic build systems, or long autonomous debugging."
+      },
+      {
+        "id": "claude-deepseek-v4-pro",
+        "cost": 2.0,
+        "supports_images": false,
+        "card": "Mid-cost, strong reasoning model. Good for harder multi-step logic, algorithm implementation, and careful refactors that need sustained reasoning. Reliable tool-calling. Not vision-capable."
+      },
+      {
+        "id": "claude-gpt-5.5-codex",
+        "cost": 5.0,
+        "supports_images": true,
+        "card": "Highest cost here; frontier reasoning and agentic coding. Best for the hardest work: large multi-file refactors, subtle debugging, architecture and design, long autonomous/dynamic workflows, and anything requiring images. Reserve for tasks the cheaper models would likely fail."
+      }
+    ]
+  },
+
+  "_directives": "Routing directives ('pins') - optional, OPT-IN (OFF until you set enabled:true below, or UC_DIRECTIVES=1). A request's PROMPT can FORCE a specific backend, overriding the orchestrator/worker pick AND the Auto Router. This is how an automated multi-agent workflow lands each spawned sub-agent on the right model BY ROLE: tag each agent()'s prompt with [[route:NAME]] (or @NAME / use:NAME). Names auto-derive from your model ids + display names (composer/codex/minimax/mimo... already work). No tag, two names, or an unknown name -> normal routing decides. Full guide: docs/DIRECTIVES.md; runnable plan->code->review->fix pipeline: examples/role_pipeline_workflow.js.",
+  "directives": {
+    "_enabled": "OFF by default so this never changes existing behavior. Set true to turn directives on (or UC_DIRECTIVES=1).",
+    "enabled": false,
+    "_aliases": "Optional name -> route id overrides ON TOP of the auto-derived table. Right side MUST be a route id from 'routes'. Add entries only to introduce a new name or disambiguate one (e.g. bare 'deepseek' maps to two routes and is dropped unless pinned here).",
+    "aliases": {},
+    "_planner": "Optional. When set to a route id, interactive plan-mode turns with NO explicit pin auto-route there (e.g. let your strongest model write every plan). null = disabled.",
+    "planner": null,
+    "_strip": "Remove the [[route:...]] / @name / use:name marker from the prompt before forwarding (recommended).",
+    "strip": true
+  }
+}

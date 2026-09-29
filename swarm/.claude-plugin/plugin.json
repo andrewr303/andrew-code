@@ -1,0 +1,34 @@
+{
+  "name": "fusion",
+  "displayName": "Fusion",
+  "version": "3.0.0+hive",
+  "description": "Nested multi-agent coding swarm + multi-model council. Architect (Fable 5.1 / Astra gpt-6-astra) designs a custom hive; captains are any live CLI (Codex, OpenCode/GLM, Grok, Copilot, Kimi, AndrewCode/Muse); nested workers are real AndrewCode processes talking on one Hive Board (WAL sqlite + JSONL, no daemon). Also conducts local CLI panelists through Fusion's bash adapters and a stdlib Python swarm backend (panel, council, debate, vote, swarm, MoA, heavy, graph, ladder, breaker, ballot, MetaLoop, hive).",
+  "author": {
+    "name": "Andrew",
+    "url": "https://github.com/nyldn"
+  },
+  "license": "MIT",
+  "keywords": [
+    "multi-llm",
+    "multi-model",
+    "fusion",
+    "council",
+    "swarm",
+    "debate",
+    "orchestration",
+    "claude-plugin",
+    "copilot",
+    "opencode",
+    "grok",
+    "metaloop",
+    "board-advisor",
+    "fable",
+    "antigravity",
+    "tiered-swarm",
+    "hive",
+    "andrewcode",
+    "nested-swarm",
+    "astra",
+    "board"
+  ]
+}

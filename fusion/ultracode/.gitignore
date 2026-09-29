@@ -1,0 +1,16 @@
+# Python
+*.pyc
+__pycache__/
+
+# Your editable config (copied from config.example.json) — holds your keys
+/config.json
+
+# Secrets / logs / local state
+*.env
+*.log
+_test_*.json
+.uc_probe/
+
+# OS
+.DS_Store
+Thumbs.db

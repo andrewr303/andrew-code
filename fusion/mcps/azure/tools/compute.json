@@ -1,0 +1,30 @@
+{
+  "name": "compute",
+  "description": "Compute operations - Commands for managing and monitoring Azure Virtual Machines (VMs), Virtual Machine Scale Sets (VMSS), and Managed Disks.\r\nThis tool provides comprehensive access to VM lifecycle management, instance monitoring, size discovery, and scale set operations.\r\nUse this tool when you need to list, query, create, or monitor VMs and VMSS instances across subscriptions and resource groups.\r\nDefaults to Standard_D2s_v5 VM size for VM and VMSS creation when not specified; the --image option is required.\r\nThis tool is a hierarchical MCP command router where sub-commands are routed to MCP servers that require specific fields\r\ninside the \"parameters\" object. To invoke a command, set \"command\" and wrap its arguments in \"parameters\".\r\nSet \"learn=true\" to discover available sub-commands for different Azure Compute operations.\r\nNote that this tool requires appropriate Azure RBAC permissions and will only access compute resources accessible to the authenticated user.This tool is a hierarchical MCP command router.\r\nSub commands are routed to MCP servers that require specific fields inside the \"parameters\" object.\r\nTo invoke a command, set \"command\" and wrap its args in \"parameters\".\r\nSet \"learn=true\" to discover available sub commands.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "intent": {
+        "type": "string",
+        "description": "The intent of the azure operation to perform."
+      },
+      "command": {
+        "type": "string",
+        "description": "The command to execute against the specified tool."
+      },
+      "parameters": {
+        "type": "object",
+        "description": "The parameters to pass to the tool command."
+      },
+      "learn": {
+        "type": "boolean",
+        "description": "To learn about the tool and its supported child tools and parameters.",
+        "default": false
+      }
+    },
+    "required": [
+      "intent"
+    ],
+    "additionalProperties": false
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "reactivate_prompt_override",
+  "description": "Reactivate a previous dashboard-sourced version as the active override. Use get_prompt_versions to find dashboard versions that can be reactivated.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "projectRef": {
+        "type": "string",
+        "description": "The trigger.dev project ref, starts with proj_. We will attempt to automatically detect the project ref if running inside a directory that includes a trigger.config.ts file, or if you pass the --project-ref option to the MCP server."
+      },
+      "configPath": {
+        "type": "string",
+        "description": "The path to the trigger.config.ts file. Only used when the trigger.config.ts file is not at the root dir (like in a monorepo setup). If not provided, we will try to find the config file in the current working directory"
+      },
+      "environment": {
+        "type": "string",
+        "enum": [
+          "dev",
+          "staging",
+          "prod",
+          "preview"
+        ],
+        "description": "The environment to get tasks for",
+        "default": "dev"
+      },
+      "branch": {
+        "type": "string",
+        "description": "The branch to get tasks for, only used for preview environments"
+      },
+      "slug": {
+        "type": "string",
+        "description": "The prompt slug"
+      },
+      "version": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "description": "The dashboard-sourced version number to reactivate as override"
+      }
+    },
+    "required": [
+      "slug",
+      "version"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "aws___retrieve_skill",
+  "description": "Retrieve an AWS skill (workflows, references). Returns SKILL.md, or `file` if given.\n\nCall `search_documentation` FIRST and copy `skill_name` verbatim -- it is an opaque registry ID. Never guess or fabricate `skill_name` or `file`.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "file": {
+        "type": "string",
+        "description": "Optional file path within the skill, copied as cited (e.g. `references/architecture.md`). Don't add or strip a `references/` prefix. Omit for SKILL.md."
+      },
+      "skill_name": {
+        "type": "string",
+        "description": "Required. Exact `skill_name` from a search_documentation result, copied verbatim. Do not invent or modify."
+      }
+    },
+    "required": [
+      "skill_name"
+    ]
+  }
+}

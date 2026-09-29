@@ -1,0 +1,46 @@
+{
+  "name": "wait_for_run_to_complete",
+  "description": "Wait for a run to complete. The run ID is the ID of the run that was triggered. It starts with run_. Has an optional timeoutInSeconds parameter (default 60s) - if the run doesn't complete within that time, the current state of the run will be returned.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "projectRef": {
+        "type": "string",
+        "description": "The trigger.dev project ref, starts with proj_. We will attempt to automatically detect the project ref if running inside a directory that includes a trigger.config.ts file, or if you pass the --project-ref option to the MCP server."
+      },
+      "configPath": {
+        "type": "string",
+        "description": "The path to the trigger.config.ts file. Only used when the trigger.config.ts file is not at the root dir (like in a monorepo setup). If not provided, we will try to find the config file in the current working directory"
+      },
+      "environment": {
+        "type": "string",
+        "enum": [
+          "dev",
+          "staging",
+          "prod",
+          "preview"
+        ],
+        "description": "The environment to get tasks for",
+        "default": "dev"
+      },
+      "branch": {
+        "type": "string",
+        "description": "The branch to get tasks for, only used for preview environments"
+      },
+      "runId": {
+        "type": "string",
+        "description": "The ID of the run to get the details of, starts with run_"
+      },
+      "timeoutInSeconds": {
+        "type": "number",
+        "description": "The maximum time in seconds to wait for the run to complete. If the run doesn't complete within this time, the current state of the run will be returned. Defaults to 60 seconds.",
+        "default": 60
+      }
+    },
+    "required": [
+      "runId"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "fusion",
+  "version": "3.0.0+hive",
+  "description": "Nested multi-agent coding swarm + multi-model council for Kimi Code / AndrewCode. Architect (Fable 5.1 / Astra gpt-6-astra) designs a custom hive; captains are any live CLI; nested workers are real AndrewCode processes on one Hive Board (WAL sqlite + JSONL, no daemon).",
+  "author": {
+    "name": "Andrew"
+  },
+  "license": "MIT",
+  "keywords": [
+    "multi-llm",
+    "multi-model",
+    "fusion",
+    "council",
+    "swarm",
+    "hive",
+    "andrewcode",
+    "nested-swarm",
+    "astra",
+    "board",
+    "kimi"
+  ],
+  "skills": "./skills/",
+  "commands": "./commands/",
+  "systemPromptPath": "./SYSTEM.md",
+  "skillInstructions": "Fusion is dormant until the user invokes /fusion:* (or /fusion:hive, /fusion:designer, /fusion:board, /fusion:metaloop). Do not auto-dispatch paid CLIs. Nested hive workers are real AndrewCode processes; never simulate them. Absent ≠ agreement. Resolve FUSION_PLUGIN_ROOT from this plugin's skills/ directory (two levels above skills/fusion-orchestrate/SKILL.md).",
+  "interface": {
+    "displayName": "Fusion",
+    "shortDescription": "Nested AndrewCode hives and multi-model councils for Kimi / AndrewCode.",
+    "longDescription": "Fusion conducts live coding CLIs (Codex, OpenCode/GLM, Grok, Copilot, Kimi, AndrewCode/Muse) from Kimi Code / AndrewCode. Hive: an architect (Fable 5.1 / Astra) may design a custom nested swarm; captains are any live CLI; nested workers are real AndrewCode processes talking on one Hive Board (WAL sqlite + JSONL, no daemon). Also panel, council, debate, vote, swarm, MoA, heavy, graph, ladder, breaker, ballot, MetaLoop.",
+    "developerName": "Andrew"
+  }
+}

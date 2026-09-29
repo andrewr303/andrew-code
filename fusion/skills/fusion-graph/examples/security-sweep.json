@@ -1,0 +1,49 @@
+{
+  "name": "security-sweep",
+  "_comment": "fan-out-and-synthesize + adversarial verification. One node per file hunting one class of issue; every finding must survive three skeptics before it reaches the report. Replace for_each with your real file list.",
+  "budget": {"max_nodes": 32, "max_calls": 60, "node_timeout": 600},
+  "nodes": [
+    {
+      "id": "scan",
+      "kind": "work",
+      "provider": "opencode",
+      "for_each": ["src/auth.ts", "src/payments.ts", "src/api/routes.ts"],
+      "prompt": "TASK: {{task}}\n\nAudit exactly one file: {{item}}\nHunt one class of issue only: missing or bypassable authorization checks.\nFor each finding return one line:\n  <file>:<line> | <one-sentence claim> | <verbatim code quote>\nIf the file is clean, return the single line: NO FINDINGS.\nDo not review any other file."
+    },
+    {
+      "id": "verify",
+      "kind": "verify",
+      "provider": "grok",
+      "voters": 3,
+      "deps": ["scan#0", "scan#1", "scan#2"],
+      "prompt": "{{inputs}}"
+    },
+    {
+      "id": "survivors",
+      "kind": "reduce",
+      "op": "dedupe",
+      "deps": ["verify"]
+    },
+    {
+      "id": "report",
+      "kind": "work",
+      "provider": "copilot",
+      "deps": ["survivors"],
+      "require": "all",
+      "prompt": "Write the security report from ONLY these surviving findings:\n{{survivors}}\n\nGroup by severity. For each: the claim, the evidence quote, and the concrete fix. Add nothing that is not in the list above."
+    },
+    {
+      "id": "tests",
+      "kind": "gate",
+      "cmd": "npm test --silent",
+      "cwd": ".",
+      "deps": ["report"]
+    },
+    {
+      "id": "open_pr",
+      "kind": "human",
+      "deps": ["tests"],
+      "reason": "opens a pull request against main and notifies the security channel"
+    }
+  ]
+}

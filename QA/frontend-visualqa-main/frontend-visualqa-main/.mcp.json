@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "frontend-visualqa": {
+      "command": "frontend-visualqa",
+      "args": ["serve"]
+    }
+  }
+}

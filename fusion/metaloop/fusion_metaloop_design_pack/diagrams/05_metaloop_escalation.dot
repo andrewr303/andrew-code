@@ -1,0 +1,34 @@
+digraph MetaLoopEscalation {
+  graph [rankdir=LR, bgcolor="#FCFCFD", pad="0.3", nodesep="0.42", ranksep="0.58", splines=ortho, fontname="Arial", label="MetaLoop Escalation State Machine", labelloc=t, fontsize=22, fontcolor="#111827"];
+  node [shape=box, style="rounded,filled", fontname="Arial", fontsize=10, margin="0.14,0.10", color="#334155", fillcolor="#FFFFFF"];
+  edge [fontname="Arial", fontsize=9, color="#64748B", fontcolor="#475569", arrowsize=0.72];
+
+  fast [label="FAST_ATTEMPT\nGemini Flash worker", fillcolor="#CFFAFE", color="#0891B2"];
+  same [label="FAST_ALTERNATE\nother harness / worker", fillcolor="#CFFAFE", color="#0891B2"];
+  expert [label="EXPERT_ATTEMPT\nGrok 4.5 or GLM 5.2", fillcolor="#EDE9FE", color="#7C3AED"];
+  expert2 [label="EXPERT_CROSSCHECK\nother expert when useful", fillcolor="#EDE9FE", color="#7C3AED"];
+  chief [label="CHIEF_TAKEOVER\nGPT-5.6 owns repair", fillcolor="#DBEAFE", color="#1D4ED8"];
+  advisor [label="ADVISOR_REVIEW\nFable critiques plan/system", fillcolor="#FED7AA", color="#C2410C", style="rounded,filled,dashed"];
+  human [label="HUMAN_APPROVAL\nprivileged action", fillcolor="#FEF3C7", color="#B45309"];
+  pass [label="PASS\nreturn artifact", shape=oval, fillcolor="#DCFCE7", color="#15803D"];
+  stop [label="STOP\npartial result + blocker", shape=oval, fillcolor="#FEE2E2", color="#B91C1C"];
+
+  fast -> pass [label="gate pass"];
+  fast -> same [label="transient / malformed output"];
+  fast -> expert [label="logic fail / low confidence"];
+  same -> pass [label="pass"];
+  same -> expert [label="fails again"];
+  expert -> pass [label="pass"];
+  expert -> expert2 [label="conflict / ambiguity"];
+  expert -> chief [label="integration-sensitive"];
+  expert2 -> pass [label="agreement + gate pass"];
+  expert2 -> chief [label="disagreement"];
+  chief -> pass [label="repair + gate pass"];
+  chief -> advisor [label="repeated/systemic failure"];
+  advisor -> chief [label="revised strategy", style=dashed];
+  chief -> human [label="destructive / production"];
+  human -> chief [label="approved"];
+  human -> stop [label="rejected"];
+  advisor -> stop [label="stop memo / no safe path", color="#C2410C"];
+  chief -> stop [label="repair cap / budget exhausted", color="#B91C1C"];
+}

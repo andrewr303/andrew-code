@@ -1,0 +1,579 @@
+<title>Fusion Dashboard</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #11151f; --panel-2: #161b28; --panel-3: #1c2333;
+    --border: #232a3b; --border-2: #2e374d;
+    --text: #e6e9f2; --text-dim: #8b92a8; --text-faint: #5a6178;
+    --accent: #7dd3fc; --accent-dim: #38617a;
+    --good: #4ade80; --warn: #fbbf24; --bad: #f87171; --violet: #a78bfa;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", system-ui, sans-serif;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--sans); }
+  body { padding: 24px 32px 80px; max-width: 1180px; margin: 0 auto; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .subtitle { color: var(--text-dim); font-size: 13px; margin: 0 0 24px; }
+
+  nav { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
+  nav button {
+    background: none; border: none; color: var(--text-dim); font-size: 13px; font-family: var(--sans);
+    padding: 10px 14px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+    transition: color 0.16s var(--ease), border-color 0.16s var(--ease);
+  }
+  nav button:hover { color: var(--text); }
+  nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+  nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 3px; }
+  nav .count { color: var(--text-faint); font-size: 11px; margin-left: 5px; }
+
+  section { display: none; }
+  section.active { display: block; animation: fade 0.24s var(--ease); }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 12px; flex-wrap: wrap; }
+  .toolbar .hint { color: var(--text-faint); font-size: 12px; }
+
+  button.action {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    font-size: 12px; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-family: var(--sans);
+    transition: border-color 0.14s var(--ease), color 0.14s var(--ease), background 0.14s var(--ease);
+  }
+  button.action:hover { border-color: var(--accent-dim); color: var(--accent); }
+  button.action:active { background: var(--panel-3); }
+  button.action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button.action:disabled { opacity: 0.5; cursor: default; }
+  button.action:disabled:hover { border-color: var(--border); color: var(--text); }
+  button.action.primary { border-color: var(--accent-dim); color: var(--accent); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .card-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; gap: 8px; }
+  .card-title { font-weight: 600; font-size: 14px; }
+  .card-title .tier { color: var(--text-faint); font-weight: 400; font-size: 11px; margin-left: 6px; }
+
+  .badge { font-size: 10px; padding: 2px 7px; border-radius: 99px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; white-space: nowrap; }
+  .badge.live { background: rgba(74,222,128,0.12); color: var(--good); }
+  .badge.degraded { background: rgba(251,191,36,0.12); color: var(--warn); }
+  .badge.missing, .badge.unprobed { background: rgba(139,146,168,0.12); color: var(--text-dim); }
+  .badge.error { background: rgba(248,113,113,0.12); color: var(--bad); }
+  .badge.host-native { background: rgba(125,211,252,0.12); color: var(--accent); }
+  .badge.corr { background: rgba(167,139,250,0.14); color: var(--violet); text-transform: none; letter-spacing: 0; }
+  .badge.custom { background: rgba(251,191,36,0.14); color: var(--warn); text-transform: none; letter-spacing: 0; }
+  .badge.stale { background: rgba(139,146,168,0.10); color: var(--text-faint); text-transform: none; letter-spacing: 0; }
+
+  .meta-row { display: flex; gap: 10px; font-size: 12px; color: var(--text-dim); margin-bottom: 10px; flex-wrap: wrap; }
+  .meta-row span b { color: var(--text); font-weight: 500; }
+
+  .model-list { font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); max-height: 170px; overflow-y: auto; }
+  .model-list .group-label { color: var(--text-faint); text-transform: uppercase; font-size: 9.5px; letter-spacing: 0.05em; margin: 8px 0 3px; font-family: var(--sans); }
+  .model-list .group-label:first-child { margin-top: 0; }
+  .model-list div.model { padding: 2px 0; }
+  .model-list div.model.key-dep::after { content: " · billed per use"; color: var(--text-faint); font-family: var(--sans); font-size: 10px; }
+  .unavail { color: var(--text-faint); font-size: 12px; font-style: italic; padding: 8px 0; }
+
+  .source-line { font-size: 10.5px; color: var(--text-faint); margin-top: 8px; border-top: 1px dashed var(--border); padding-top: 6px; }
+  .card-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+
+  .state-empty, .state-error, .state-loading { color: var(--text-faint); font-size: 13px; padding: 40px 0; text-align: center; }
+  .state-error { color: var(--bad); }
+
+  /* config groups */
+  .cfg-group { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
+  .cfg-group > summary { list-style: none; cursor: pointer; padding: 13px 16px; display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 13.5px; }
+  .cfg-group > summary::-webkit-details-marker { display: none; }
+  .cfg-group > summary:hover { background: var(--panel-2); }
+  .cfg-group > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .cfg-group > summary .chev { color: var(--text-faint); font-size: 11px; transition: transform 0.18s var(--ease); }
+  .cfg-group[open] > summary .chev { transform: rotate(90deg); }
+  .cfg-group .group-body { padding: 4px 16px 12px; border-top: 1px solid var(--border); }
+
+  .field { padding: 11px 0; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 210px 1fr; gap: 12px; align-items: start; }
+  .field:last-child { border-bottom: none; }
+  .field .flabel { font-size: 12.5px; }
+  .field .fkey { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); margin-top: 2px; word-break: break-all; }
+  .field .fhelp { font-size: 11px; color: var(--text-faint); margin-top: 3px; line-height: 1.4; }
+  .field .fctl { display: flex; flex-direction: column; gap: 5px; }
+  .ctl-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .prov-line { font-size: 10.5px; color: var(--text-faint); }
+  .prov-line b { color: var(--text-dim); font-weight: 500; }
+  .row-status { font-size: 11px; }
+  .row-status.ok { color: var(--good); }
+  .row-status.err { color: var(--bad); }
+
+  select, input.txt {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text); border-radius: 6px;
+    padding: 5px 8px; font-family: var(--sans); font-size: 12px; min-width: 180px; max-width: 340px;
+  }
+  select:focus-visible, input.txt:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input.txt.mono { font-family: var(--mono); font-size: 11.5px; }
+  .hidden { display: none !important; }
+
+  /* modes */
+  .mode-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; }
+  .mode-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 3px; flex-wrap: wrap; }
+  .mode-name { font-family: var(--mono); font-weight: 600; font-size: 13.5px; }
+  .mode-head code { font-family: var(--mono); background: var(--panel-2); padding: 1px 6px; border-radius: 4px; font-size: 11px; color: var(--accent); }
+  .mode-head .dyn { font-size: 11px; color: var(--text-faint); font-style: italic; }
+  .mode-desc { font-size: 12px; color: var(--text-dim); margin-bottom: 10px; line-height: 1.45; }
+
+  table.roster { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.roster th { text-align: left; color: var(--text-faint); font-weight: 500; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; padding: 5px 8px; border-bottom: 1px solid var(--border); }
+  table.roster td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  table.roster tr:last-child td { border-bottom: none; }
+  table.roster .rp { font-weight: 600; }
+  table.roster .rmodel { font-family: var(--mono); font-size: 11px; }
+  table.roster .rsrc { font-size: 10px; color: var(--text-faint); }
+  table.roster .rsrc.override { color: var(--violet); }
+
+  .override-box { margin-top: 12px; border-top: 1px dashed var(--border); padding-top: 10px; }
+  .override-box > summary { cursor: pointer; font-size: 12px; color: var(--accent); list-style: none; }
+  .override-box > summary::-webkit-details-marker { display: none; }
+  .override-box > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+  .override-note { font-size: 11px; color: var(--text-faint); margin: 8px 0; }
+
+  .caveat-box { background: var(--panel-2); border: 1px solid var(--border); border-left: 3px solid var(--accent-dim); border-radius: 6px; padding: 10px 14px; font-size: 12px; color: var(--text-dim); margin-bottom: 16px; line-height: 1.5; }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 4px; }
+
+  @media (max-width: 640px) { .field { grid-template-columns: 1fr; } body { padding: 20px 16px 60px; } }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f7f8fb; --panel: #ffffff; --panel-2: #f1f3f8; --panel-3: #e7ebf3; --border: #e2e5ee; --border-2: #d3d8e6;
+      --text: #1a1d29; --text-dim: #5b6178; --text-faint: #9298ab; --accent-dim: #7dd3fc;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0b0e14; --panel: #11151f; --panel-2: #161b28; --panel-3: #1c2333; --border: #232a3b; --border-2: #2e374d;
+    --text: #e6e9f2; --text-dim: #8b92a8; --text-faint: #5a6178; --accent-dim: #38617a;
+  }
+  :root[data-theme="light"] {
+    --bg: #f7f8fb; --panel: #ffffff; --panel-2: #f1f3f8; --panel-3: #e7ebf3; --border: #e2e5ee; --border-2: #d3d8e6;
+    --text: #1a1d29; --text-dim: #5b6178; --text-faint: #9298ab; --accent-dim: #7dd3fc;
+  }
+</style>
+
+<h1>Fusion Dashboard</h1>
+<p class="subtitle">Live provider/model configuration for the Fusion plugin &mdash; localhost only, session-token-gated writes.</p>
+
+<nav>
+  <button data-tab="providers" class="active">Providers &amp; Models</button>
+  <button data-tab="config">Config</button>
+  <button data-tab="modes">Swarm Modes <span class="count" id="modes-count"></span></button>
+</nav>
+
+<section id="tab-providers" class="active">
+  <div class="toolbar">
+    <span class="hint">Cached results shown instantly &mdash; the page never blocks on discovery. Refresh re-probes one CLI live (~10s cap).</span>
+    <button class="action primary" id="refresh-all">Refresh all live</button>
+  </div>
+  <div id="providers-root" class="state-loading">Loading provider status&hellip;</div>
+</section>
+
+<section id="tab-config">
+  <div id="config-caveat" class="caveat-box"></div>
+  <div id="config-root" class="state-loading">Loading config&hellip;</div>
+</section>
+
+<section id="tab-modes">
+  <div class="toolbar">
+    <span class="hint">Rosters resolved server-side &mdash; the exact models each mode would run. Override models per-mode where the engine supports it.</span>
+  </div>
+  <div id="modes-root" class="state-loading">Loading modes&hellip;</div>
+</section>
+
+<script>
+"use strict";
+const TOKEN = "__FUSION_TOKEN__";
+
+// ---------- tiny helpers ----------
+function el(tag, cls, txt) { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; }
+function fmtAge(sec) {
+  if (sec == null) return "never probed";
+  if (sec < 60) return Math.round(sec) + "s ago";
+  if (sec < 3600) return Math.round(sec / 60) + "m ago";
+  return Math.round(sec / 3600) + "h ago";
+}
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(b.error || ("HTTP " + res.status));
+  }
+  return res.json();
+}
+function saveConfig(key, value) {
+  return api("/api/config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Fusion-Token": TOKEN },
+    body: JSON.stringify({ key, value }),
+  });
+}
+
+// ---------- tabs ----------
+document.querySelectorAll("nav button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll("section").forEach(s => s.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+  });
+});
+
+// ---------- shared state ----------
+let SCHEMA = null;            // {schema, groups, values, caveat, ...}
+let SCHEMA_BY_KEY = {};
+let DISCOVERY = {};           // provider -> cached discovery record
+let PROVIDERS = {};           // provider -> roster meta
+
+// discovery options for a provider's model <select>, grouped (opencode families)
+// A provider's models are SELECTABLE only when discovery genuinely returned
+// live models — never for a curated fallback (is_curated) or a failed/unprobed
+// state. A discovery failure must offer only the custom escape hatch (honesty).
+function discoveryAvailable(d) {
+  return !!d && !d.is_curated && (d.status === "live" || d.status === "degraded") && d.models && d.models.length > 0;
+}
+function modelOptionsFor(provider) {
+  const d = DISCOVERY[provider];
+  if (!discoveryAvailable(d)) return { available: false, status: d ? d.status : "unprobed", groups: [] };
+  if (d.models_annotated) {
+    const bucket = {};
+    d.models_annotated.forEach(m => { (bucket[m.group] = bucket[m.group] || []).push(m.model); });
+    return { available: true, status: d.status, groups: Object.keys(bucket).sort().map(g => ({ label: g, models: bucket[g] })) };
+  }
+  return { available: true, status: d.status, groups: [{ label: null, models: d.models || [] }] };
+}
+
+// ---------- schema-driven control ----------
+// Renders one control (model/enum/int/text) with a Custom... escape hatch and
+// an unverified badge. Native <select> = keyboard-operable + accessible; a
+// "Custom..." sentinel reveals a text input. Returns {wrap, getValue, markSaved}.
+const CUSTOM = "__fusion_custom__";
+function makeControl(desc, value) {
+  const wrap = el("div", "ctl-row");
+  let getValue, current = value == null ? "" : String(value);
+
+  if (desc.widget === "int" || desc.widget === "text") {
+    const inp = el("input", "txt" + (desc.widget === "int" ? "" : " mono"));
+    inp.type = desc.widget === "int" ? "number" : "text";
+    inp.value = current;
+    inp.setAttribute("aria-label", desc.label);
+    wrap.appendChild(inp);
+    getValue = () => inp.value.trim();
+    return { wrap, getValue };
+  }
+
+  // model / enum -> select + optional custom input
+  const sel = el("select");
+  sel.setAttribute("aria-label", desc.label);
+  const custBadge = el("span", "badge custom hidden", "custom");
+  const custInp = el("input", "txt mono hidden");
+  custInp.type = "text"; custInp.placeholder = "custom value…";
+  custInp.setAttribute("aria-label", desc.label + " custom value");
+
+  function buildOptions() {
+    sel.innerHTML = "";
+    let known = [];
+    if (desc.widget === "model") {
+      const opts = modelOptionsFor(desc.provider);
+      if (!opts.available) {
+        const o = el("option"); o.value = ""; o.textContent = "— discovery unavailable —"; o.disabled = true; sel.appendChild(o);
+      }
+      opts.groups.forEach(g => {
+        const parent = g.label ? el("optgroup") : sel;
+        if (g.label) parent.label = g.label;
+        g.models.forEach(m => { const o = el("option"); o.value = m; o.textContent = m; parent.appendChild(o); known.push(m); });
+        if (g.label) sel.appendChild(parent);
+      });
+    } else { // enum
+      (desc.choices || []).forEach(c => { const o = el("option"); o.value = c; o.textContent = c; sel.appendChild(o); known.push(c); });
+    }
+    const oc = el("option"); oc.value = CUSTOM; oc.textContent = "Custom…"; sel.appendChild(oc);
+
+    const isCustom = current !== "" && !known.includes(current);
+    if (current === "") {
+      // keep an empty placeholder selectable so "unset" is representable
+      const oe = el("option"); oe.value = ""; oe.textContent = "— unset (use global/baked) —"; sel.insertBefore(oe, sel.firstChild); sel.value = "";
+    } else if (isCustom) {
+      sel.value = CUSTOM; custInp.value = current; custInp.classList.remove("hidden"); custBadge.classList.remove("hidden");
+    } else {
+      sel.value = current;
+    }
+  }
+  buildOptions();
+  sel.addEventListener("change", () => {
+    if (sel.value === CUSTOM) { custInp.classList.remove("hidden"); custBadge.classList.remove("hidden"); custInp.focus(); }
+    else { custInp.classList.add("hidden"); custBadge.classList.add("hidden"); }
+  });
+  custInp.addEventListener("input", () => { custBadge.classList.toggle("hidden", custInp.value.trim() === ""); });
+
+  wrap.append(sel, custInp, custBadge);
+  getValue = () => (sel.value === CUSTOM ? custInp.value.trim() : sel.value);
+  return { wrap, getValue, rebuild: () => { current = getValue(); buildOptions(); } };
+}
+
+// a full saveable field (label + control + provenance + save)
+function makeField(desc, effective) {
+  const f = el("div", "field");
+  const left = el("div");
+  left.append(el("div", "flabel", desc.label), el("div", "fkey", desc.key));
+  if (desc.help) left.append(el("div", "fhelp", desc.help));
+  const right = el("div", "fctl");
+
+  const ctl = makeControl(desc, effective ? effective.value : "");
+  const saveRow = el("div", "ctl-row");
+  const btn = el("button", "action", "Save");
+  const status = el("span", "row-status");
+  saveRow.append(btn, status);
+
+  const prov = el("div", "prov-line");
+  function renderProv() {
+    if (!effective) { prov.textContent = ""; return; }
+    prov.innerHTML = "";
+    prov.append(document.createTextNode("effective: "));
+    const b = el("b", null, effective.value == null || effective.value === "" ? "(unset)" : effective.value);
+    prov.append(b, document.createTextNode("  ·  source: " + (effective.source || "?")));
+    if (effective.source === "env") prov.append(el("span", null, "  (shell env wins; edits here won't take effect)"));
+  }
+  renderProv();
+
+  btn.addEventListener("click", async () => {
+    status.textContent = ""; status.className = "row-status";
+    const val = ctl.getValue();
+    btn.disabled = true;
+    try {
+      const r = await saveConfig(desc.key, val);
+      status.textContent = r.custom ? "saved (custom)" : "saved";
+      status.className = "row-status ok";
+      if (effective) { effective.value = val; effective.source = val === "" ? effective.source : "defaults.env"; renderProv(); }
+    } catch (e) {
+      status.textContent = e.message; status.className = "row-status err";
+    } finally { btn.disabled = false; }
+  });
+
+  right.append(ctl.wrap, saveRow, prov);
+  f.append(left, right);
+  f._rebuild = ctl.rebuild;
+  return f;
+}
+
+// ---------- Providers & Models tab ----------
+async function loadProviders() {
+  const root = document.getElementById("providers-root");
+  try {
+    const [pv, disc] = await Promise.all([api("/api/providers"), api("/api/discovery")]);
+    PROVIDERS = pv.providers; DISCOVERY = disc;
+    renderProviders();
+  } catch (e) { root.className = "state-error"; root.textContent = "Failed to load providers: " + e.message; }
+}
+
+function renderModelList(listEl, provider) {
+  listEl.innerHTML = "";
+  const d = DISCOVERY[provider];
+  if (!d) { listEl.appendChild(el("span", "unavail", "…")); return; }
+  if (!discoveryAvailable(d)) {
+    listEl.appendChild(el("div", "unavail", d.status === "unprobed"
+      ? "not yet probed — Refresh to discover live models"
+      : "discovery unavailable — Refresh to retry (no fabricated fallback shown)"));
+    return;
+  }
+  const opts = modelOptionsFor(provider);
+  opts.groups.forEach(g => {
+    if (g.label) listEl.appendChild(el("div", "group-label", g.label));
+    g.models.forEach(m => {
+      const div = el("div", "model" + (g.label && g.label.startsWith("Direct") ? " key-dep" : ""), m);
+      listEl.appendChild(div);
+    });
+  });
+}
+
+function renderProviders() {
+  const root = document.getElementById("providers-root");
+  const names = Object.keys(PROVIDERS);
+  if (!names.length) { root.className = "state-empty"; root.textContent = "No providers configured."; return; }
+  root.className = "grid"; root.innerHTML = "";
+  names.forEach(name => {
+    const p = PROVIDERS[name], d = DISCOVERY[name] || {};
+    const statusClass = p.presence === "host-native" ? "host-native" : (d.status || "unprobed");
+    const card = el("div", "card");
+    const head = el("div", "card-head");
+    const title = el("div", "card-title");
+    title.append(document.createTextNode(name + (p.sessions > 1 ? " ×" + p.sessions : "")));
+    title.appendChild(el("span", "tier", (p.tier || "") + " · " + (p.model_family || "")));
+    head.append(title, el("span", "badge " + statusClass, statusClass));
+    const meta = el("div", "meta-row");
+    meta.appendChild(el("span")).innerHTML = "harness: <b>" + (p.harness || "?") + "</b>";
+    meta.appendChild(el("span")).innerHTML = "default: <b>" + (p.model || "?") + "</b>";
+    if (p.selectable_as_worker === false) meta.appendChild(el("span", null, "advisor/base-panel only"));
+
+    const list = el("div", "model-list");
+    renderModelList(list, name);
+    const src = el("div", "source-line", d.source || "");
+    const foot = el("div", "card-foot");
+    const age = el("span", "hint");
+    age.append(document.createTextNode(fmtAge(d.age_seconds)));
+    if (d.stale && d.probed) age.appendChild(el("span", "badge stale", "stale"));
+    const rbtn = el("button", "action", "Refresh");
+    rbtn.addEventListener("click", () => refreshProvider(name, rbtn, list, src, age));
+    foot.append(age, rbtn);
+    card.append(head, meta, list, src, foot);
+    root.appendChild(card);
+  });
+}
+
+async function refreshProvider(name, btn, listEl, srcEl, ageEl) {
+  btn.disabled = true; const old = btn.textContent; btn.textContent = "Probing…";
+  try {
+    const r = await api("/api/discovery/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Fusion-Token": TOKEN },
+      body: JSON.stringify({ provider: name }),
+    });
+    DISCOVERY[name] = r.result;
+    if (listEl) { renderModelList(listEl, name); srcEl.textContent = r.result.source || ""; ageEl.firstChild.textContent = fmtAge(0); }
+    // refresh any open config/mode model selects bound to this provider
+    document.querySelectorAll(".field").forEach(f => { if (f._rebuild) f._rebuild(); });
+  } catch (e) { if (srcEl) srcEl.textContent = "refresh failed: " + e.message; }
+  finally { btn.disabled = false; btn.textContent = old; }
+}
+
+document.getElementById("refresh-all").addEventListener("click", async ev => {
+  ev.target.disabled = true; ev.target.textContent = "Probing all…";
+  const names = Object.keys(PROVIDERS).filter(n => DISCOVERY[n]); // known probeable
+  await Promise.all(Object.keys(DISCOVERY).map(async name => {
+    try {
+      const r = await api("/api/discovery/refresh", {
+        method: "POST", headers: { "Content-Type": "application/json", "X-Fusion-Token": TOKEN },
+        body: JSON.stringify({ provider: name }),
+      });
+      DISCOVERY[name] = r.result;
+    } catch (e) { /* keep going; per-provider failure is isolated */ }
+  }));
+  renderProviders();
+  document.querySelectorAll(".field").forEach(f => { if (f._rebuild) f._rebuild(); });
+  ev.target.disabled = false; ev.target.textContent = "Refresh all live";
+});
+
+// ---------- Config tab ----------
+async function loadSchema() {
+  if (!SCHEMA) {
+    SCHEMA = await api("/api/schema");
+    SCHEMA_BY_KEY = {}; SCHEMA.schema.forEach(d => { SCHEMA_BY_KEY[d.key] = d; });
+    if (!Object.keys(DISCOVERY).length) { try { DISCOVERY = await api("/api/discovery"); } catch (e) {} }
+  }
+  return SCHEMA;
+}
+
+async function loadConfig() {
+  const root = document.getElementById("config-root");
+  const caveat = document.getElementById("config-caveat");
+  try {
+    await loadSchema();
+    caveat.textContent = SCHEMA.caveat + "  " + SCHEMA.opencode_family_note;
+    renderConfig();
+  } catch (e) { root.className = "state-error"; root.textContent = "Failed to load config: " + e.message; }
+}
+
+function renderConfig() {
+  const root = document.getElementById("config-root");
+  root.className = ""; root.innerHTML = "";
+  // only GLOBAL groups here; per-mode groups live on the Modes tab.
+  const globalGroups = SCHEMA.groups.filter(g => g.kind === "global");
+  globalGroups.forEach((g, i) => {
+    const fields = SCHEMA.schema.filter(d => d.group === g.id);
+    if (!fields.length) return;
+    const det = el("details", "cfg-group"); if (i === 0) det.open = true;
+    const sum = el("summary");
+    sum.append(el("span", null, g.label));
+    const right = el("span"); right.append(el("span", "count", fields.length + " keys"), el("span", "chev", " ›"));
+    sum.append(right);
+    const body = el("div", "group-body");
+    fields.forEach(d => body.appendChild(makeField(d, SCHEMA.values[d.key])));
+    det.append(sum, body); root.appendChild(det);
+  });
+}
+
+// ---------- Swarm Modes tab ----------
+async function loadModes() {
+  const root = document.getElementById("modes-root");
+  try {
+    await loadSchema();
+    const data = await api("/api/modes/resolved");
+    renderModes(data.modes);
+  } catch (e) { root.className = "state-error"; root.textContent = "Failed to load modes: " + e.message; }
+}
+
+function renderModes(modes) {
+  const root = document.getElementById("modes-root");
+  document.getElementById("modes-count").textContent = "(" + modes.length + ")";
+  if (!modes.length) { root.className = "state-empty"; root.textContent = "No commands found."; return; }
+  root.className = ""; root.innerHTML = "";
+  // engine modes first, then dynamic
+  const ordered = [...modes.filter(m => m.resolution === "engine"), ...modes.filter(m => m.resolution !== "engine")];
+  ordered.forEach(m => root.appendChild(renderModeCard(m)));
+}
+
+function renderModeCard(m) {
+  const card = el("div", "mode-card");
+  const head = el("div", "mode-head");
+  head.appendChild(el("span", "mode-name", "/fusion:" + m.mode));
+  if (m.engine_pattern) head.appendChild(el("code", null, m.engine_pattern));
+  if (m.resolution !== "engine") head.appendChild(el("span", "dyn", m.roster_note || "dynamic"));
+  card.appendChild(head);
+  if (m.description) card.appendChild(el("div", "mode-desc", m.description));
+
+  if (m.resolution === "engine") {
+    const tbl = el("table", "roster");
+    tbl.innerHTML = "<thead><tr><th>provider</th><th>role</th><th>effective model</th><th>effort</th></tr></thead>";
+    const tb = el("tbody");
+    m.roster.forEach(r => {
+      const tr = el("tr");
+      const pc = el("td");
+      pc.appendChild(el("span", "rp", r.provider + (r.sessions > 1 ? " ×" + r.sessions : "")));
+      if (r.correlation_group) pc.appendChild(el("span", "badge corr", " " + r.correlation_group + "-family"));
+      tr.appendChild(pc);
+      tr.appendChild(el("td", null, r.role || ""));
+      const mc = el("td");
+      mc.appendChild(el("div", "rmodel", r.model || "(unset)"));
+      const src = el("div", "rsrc" + (r.model_source === "per-mode override" ? " override" : ""), r.model_source || "");
+      mc.appendChild(src);
+      tr.appendChild(mc);
+      const ec = el("td", "rmodel", r.effort || "—");
+      tr.appendChild(ec);
+      tb.appendChild(tr);
+    });
+    tbl.appendChild(tb); card.appendChild(tbl);
+
+    if (m.overridable) card.appendChild(renderOverrides(m));
+    else if (m.roster_note) card.appendChild(el("div", "override-note", m.roster_note));
+  }
+  return card;
+}
+
+function renderOverrides(m) {
+  const box = el("details", "override-box");
+  const sum = el("summary", null, "Override models/effort for /fusion:" + m.mode + " only …");
+  box.appendChild(sum);
+  const note = el("div", "override-note",
+    "These override the global config for this mode only. Empty = fall back to global. Saved to config/defaults.env.");
+  box.appendChild(note);
+  // fields from the schema group mode:<command>
+  const gid = "mode:" + m.mode;
+  const fields = SCHEMA.schema.filter(d => d.group === gid);
+  if (!fields.length) { box.appendChild(el("div", "override-note", "no overridable providers for this mode.")); return box; }
+  const body = el("div");
+  fields.forEach(d => body.appendChild(makeField(d, SCHEMA.values[d.key])));
+  box.appendChild(body);
+  return box;
+}
+
+// ---------- boot ----------
+loadProviders();
+loadConfig();
+loadModes();
+</script>

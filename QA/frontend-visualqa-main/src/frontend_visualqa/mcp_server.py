@@ -1,0 +1,274 @@
+"""FastMCP adapter for frontend-visualqa."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, get_args
+
+from mcp.server.fastmcp import FastMCP
+
+from frontend_visualqa.serialization import serialize_result
+from frontend_visualqa.schemas import (
+    BrowserAction,
+    BrowserConfig,
+    VerifyVisualClaimsInput,
+    ViewportConfig,
+    _pydantic_field_default,
+    validate_url,
+)
+from frontend_visualqa.utils import resolve_optional_method, retain_background_task
+
+if TYPE_CHECKING:
+    from frontend_visualqa.runner import VisualQARunner
+
+logger = logging.getLogger(__name__)
+
+# Derived from BrowserAction so this list can't drift from the Literal that
+# ManageBrowserInput.action actually validates against.
+_BROWSER_ACTIONS = ", ".join(get_args(BrowserAction))
+
+SERVER_INSTRUCTIONS = (
+    "Use verify_visual_claims for explicit, observable frontend claims. "
+    "Use take_screenshot when you need a quick visual baseline before writing claims. "
+    "Use manage_browser to inspect browser state, reset the shared session, or open a persistent headed browser "
+    "for human login on auth-gated apps. "
+    "Do not expect this server to start the local frontend for you."
+)
+
+mcp = FastMCP("frontend-visualqa", instructions=SERVER_INSTRUCTIONS, log_level="ERROR")
+
+_runners_by_loop: dict[int, VisualQARunner] = {}
+_runner_locks_by_loop: dict[int, asyncio.Lock] = {}
+_server_browser_config: BrowserConfig | None = None
+_config_frozen = False
+
+# Without a retained reference, asyncio can garbage-collect this fire-and-forget
+# task before it finishes closing the runner's browser session. See
+# utils.retain_background_task for why this set exists.
+_pending_close_tasks: set[asyncio.Task[None]] = set()
+
+
+def get_mcp_server() -> FastMCP:
+    """Return the configured FastMCP server instance."""
+
+    return mcp
+
+
+def configure_server(browser_config: BrowserConfig) -> None:
+    """Set the browser config for future MCP runner construction."""
+
+    global _server_browser_config, _config_frozen
+    if _config_frozen:
+        raise RuntimeError(
+            "Cannot change browser config after runner has been created. "
+            "Call configure_server() before the first tool invocation."
+        )
+    _server_browser_config = browser_config
+
+
+def _loop_key() -> int:
+    return id(asyncio.get_running_loop())
+
+
+def _ensure_lock() -> asyncio.Lock:
+    loop_key = _loop_key()
+    lock = _runner_locks_by_loop.get(loop_key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _runner_locks_by_loop[loop_key] = lock
+    return lock
+
+
+async def _get_runner() -> VisualQARunner:
+    global _config_frozen
+
+    loop_key = _loop_key()
+    runner = _runners_by_loop.get(loop_key)
+    if runner is not None:
+        return runner
+
+    async with _ensure_lock():
+        runner = _runners_by_loop.get(loop_key)
+        if runner is not None:
+            return runner
+        try:
+            from frontend_visualqa.runner import VisualQARunner
+        except ImportError as exc:
+            raise RuntimeError(
+                "frontend_visualqa.runner.VisualQARunner is unavailable. "
+                "Make sure the shared runtime files are present before invoking the CLI or MCP server."
+            ) from exc
+        runner = VisualQARunner(browser_config=_server_browser_config or BrowserConfig())
+        _config_frozen = True
+        _runners_by_loop[loop_key] = runner
+        return runner
+
+
+def _detach_runners_for_close() -> list[VisualQARunner]:
+    global _server_browser_config, _config_frozen
+    runners = list(_runners_by_loop.values())
+    _runners_by_loop.clear()
+    _runner_locks_by_loop.clear()
+    _server_browser_config = None
+    _config_frozen = False
+    return runners
+
+
+async def _close_detached_runners(runners: list[VisualQARunner]) -> None:
+    """Close runners after server state has already been reset."""
+
+    for runner in runners:
+        close = resolve_optional_method(runner, "close")
+        if close is None:
+            continue
+        try:
+            await close()
+        except Exception:
+            logger.warning("Failed to close frontend-visualqa runner during shutdown", exc_info=True)
+
+
+def close_runners_sync() -> None:
+    """Close any cached runners after the MCP server exits."""
+
+    if not _runners_by_loop and _server_browser_config is None and not _config_frozen:
+        return
+
+    runners = _detach_runners_for_close()
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        if runners:
+            asyncio.run(_close_detached_runners(runners))
+        return
+
+    if runners:
+        task = loop.create_task(_close_detached_runners(runners))
+        retain_background_task(_pending_close_tasks, task)
+
+
+@mcp.tool(
+    name="verify_visual_claims",
+    description=(
+        "Verify one or more explicit visual claims against a locally running frontend. "
+        "Return structured pass/fail results with screenshot evidence."
+    ),
+)
+async def verify_visual_claims(
+    url: str,
+    claims: list[str],
+    viewport: ViewportConfig | None = None,
+    session_key: str = "default",
+    run_name: str | None = None,
+    reuse_session: bool = True,
+    reset_between_claims: bool = True,
+    visualize: bool | None = None,
+    max_steps_per_claim: int = _pydantic_field_default(VerifyVisualClaimsInput, "max_steps_per_claim"),
+    claim_timeout_seconds: float | None = _pydantic_field_default(VerifyVisualClaimsInput, "claim_timeout_seconds"),
+    run_timeout_seconds: float | None = _pydantic_field_default(VerifyVisualClaimsInput, "run_timeout_seconds"),
+    navigation_hint: str | None = None,
+) -> dict[str, Any]:
+    """Run the shared visual QA runner over one or more claims."""
+
+    runner = await _get_runner()
+    result = await runner.run(
+        url=validate_url(url),
+        claims=claims,
+        viewport=viewport,
+        session_key=session_key,
+        run_name=run_name,
+        reuse_session=reuse_session,
+        reset_between_claims=reset_between_claims,
+        visualize=visualize,
+        max_steps_per_claim=max_steps_per_claim,
+        claim_timeout_seconds=claim_timeout_seconds,
+        run_timeout_seconds=run_timeout_seconds,
+        navigation_hint=navigation_hint,
+    )
+    return serialize_result(result)
+
+
+@mcp.tool(
+    name="take_screenshot",
+    description="Navigate to a local frontend URL and save a screenshot for visual inspection.",
+)
+async def take_screenshot(
+    url: str,
+    viewport: ViewportConfig | None = None,
+    session_key: str = "default",
+    run_name: str | None = None,
+    reuse_session: bool = True,
+) -> dict[str, Any]:
+    """Capture a screenshot through the shared runner without running full claim verification."""
+
+    runner = await _get_runner()
+    result = await runner.take_screenshot(
+        url=validate_url(url),
+        viewport=viewport,
+        session_key=session_key,
+        run_name=run_name,
+        reuse_session=reuse_session,
+    )
+    return serialize_result(result)
+
+
+@mcp.tool(
+    name="manage_browser",
+    description=(
+        "Manage the shared Playwright browser session. "
+        f"Valid actions: {_BROWSER_ACTIONS}. "
+        "Use action='login' with a url to open a persistent headed browser for human authentication on "
+        "auth-gated apps."
+    ),
+)
+async def manage_browser(
+    action: str,
+    session_key: str = "default",
+    viewport: ViewportConfig | None = None,
+    url: str | None = None,
+) -> dict[str, Any]:
+    """Manage shared browser lifecycle.
+
+    Args:
+        action: One of status, restart, close, set_viewport, login.
+        session_key: Named browser session to operate on.
+        viewport: Viewport dimensions (used by set_viewport, restart, login).
+        url: Required when action is 'login'. The URL where the human should complete authentication.
+    """
+
+    runner = await _get_runner()
+    result = await runner.manage_browser(
+        action=action,
+        session_key=session_key,
+        viewport=viewport,
+        url=url,
+    )
+    return serialize_result(result)
+
+
+def run_stdio_server(get_server: Callable[[], FastMCP], close_runners: Callable[[], None]) -> None:
+    """Run an MCP server over stdio, always closing cached runners afterward.
+
+    Shared by ``main()`` (this module's own entrypoint) and the unified CLI's
+    ``_handle_serve`` (`cli.py`), which previously duplicated this identical
+    try/finally shutdown sequence. Takes the server-getter and close-runners
+    callables as parameters, rather than reaching for this module's own
+    ``get_mcp_server``/``close_runners_sync`` directly, so each caller's own
+    (possibly monkeypatched, in tests) references are honored.
+    """
+    try:
+        get_server().run(transport="stdio")
+    finally:
+        close_runners()
+
+
+def main() -> None:
+    """Run the MCP server over stdio."""
+
+    run_stdio_server(get_mcp_server, close_runners_sync)
+
+
+if __name__ == "__main__":
+    main()

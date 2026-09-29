@@ -1,0 +1,15 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "fusion",
+  "version": "3.0.0+hive",
+  "description": "Nested multi-agent coding swarm + multi-model council. Architect (Fable 5.1 / Astra) designs a custom hive; nested workers are real AndrewCode processes on one Hive Board.",
+  "license": "MIT",
+  "keywords": [
+    "multi-llm",
+    "fusion",
+    "hive",
+    "andrewcode",
+    "nested-swarm",
+    "board"
+  ]
+}

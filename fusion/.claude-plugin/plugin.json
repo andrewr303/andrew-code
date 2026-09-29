@@ -1,0 +1,29 @@
+{
+  "name": "fusion",
+  "displayName": "Fusion",
+  "version": "2.1.0+metaloop",
+  "description": "Multi-model council and swarm control plane. Conducts local CLI panelists (Codex, Copilot, OpenCode, Grok) through Fusion's bash adapters and a stdlib Python swarm backend. Adds MetaLoop: Fable 5 as CEO (frames every run) + GPT Chief Operator + tiered expert (Grok, GLM) / fast (two Antigravity Gemini 3.5 Flash sessions) swarm with typed contracts, risk-aware routing, correlation-aware consensus, real-repo proposal mode, and deterministic gates.",
+  "author": {
+    "name": "Andrew",
+    "url": "https://github.com/nyldn"
+  },
+  "license": "MIT",
+  "keywords": [
+    "multi-llm",
+    "multi-model",
+    "fusion",
+    "council",
+    "swarm",
+    "debate",
+    "orchestration",
+    "claude-plugin",
+    "copilot",
+    "opencode",
+    "grok",
+    "metaloop",
+    "board-advisor",
+    "fable",
+    "antigravity",
+    "tiered-swarm"
+  ]
+}

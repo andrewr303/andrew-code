@@ -1,0 +1,51 @@
+{
+  "name": "fusion",
+  "version": "2.1.0+metaloop",
+  "description": "Multi-model council and swarm control plane for Codex. Codex conducts local CLI panelists through Fusion's bash adapters and stdlib Python swarm backend. Adds MetaLoop: Fable 5 as CEO (frames every run) + GPT Chief Operator + tiered expert (Grok, GLM) / fast (two Antigravity Gemini 3.5 Flash sessions) swarm with typed contracts, risk-aware routing, real-repo proposal mode, and deterministic gates.",
+  "author": {
+    "name": "Andrew",
+    "url": "https://github.com/nyldn"
+  },
+  "license": "MIT",
+  "keywords": [
+    "multi-llm",
+    "multi-model",
+    "fusion",
+    "council",
+    "swarm",
+    "debate",
+    "orchestration",
+    "codex-plugin",
+    "copilot",
+    "opencode",
+    "grok",
+    "python",
+    "scripts",
+    "metaloop",
+    "board-advisor",
+    "fable",
+    "antigravity",
+    "tiered-swarm"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Fusion",
+    "shortDescription": "Conduct local model councils and Python-backed swarms from Codex.",
+    "longDescription": "Fusion bundles Codex skills, bash adapters, provider detection, a learning ledger, and a stdlib Python swarm engine for panel, council, debate, vote, swarm, MoA, heavy, graph, ladder, breaker, ballot, verification-gate, and MetaLoop workflows. MetaLoop adds an asymmetric Board Advisor (Fable), a GPT Chief Operator, expert (Grok, OpenCode/GLM) and fast (Antigravity, Copilot) labor tiers, typed task/worker/advisor/gate contracts, risk-aware routing, correlation-aware consensus, and proposal-mode workspace safety.",
+    "developerName": "Andrew",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Skills",
+      "Local scripts",
+      "Python backend"
+    ],
+    "defaultPrompt": [
+      "Use Fusion to get a second opinion.",
+      "Run a Fusion setup check.",
+      "Use a Fusion gate for this change."
+    ],
+    "logo": "./assets/app-icon.svg",
+    "composerIcon": "./assets/app-icon.svg",
+    "brandColor": "#2563EB"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "name": "routed-review",
+  "_comment": "classify-and-act + adversarial verification. A small diff gets one quick pass; a large or risky one triggers a full audit across three lenses. The classification is the model's; the routing is code, so the same diff always takes the same path.",
+  "budget": {"max_nodes": 16, "max_calls": 24},
+  "nodes": [
+    {
+      "id": "triage",
+      "kind": "route",
+      "provider": "codex",
+      "targets": ["quick", "audit"],
+      "prompt": "Here is a change to review:\n{{task}}\n\nDecide the depth of review it deserves.\n- Mechanical, small, or confined to tests/docs -> quick\n- Touches auth, money, data migration, public API, or is large -> audit"
+    },
+    {
+      "id": "quick",
+      "kind": "work",
+      "provider": "copilot",
+      "deps": ["triage"],
+      "prompt": "One focused review pass on this change:\n{{task}}\n\nReturn only defects you can point at a specific line for. One per line."
+    },
+    {
+      "id": "audit",
+      "kind": "work",
+      "provider": "grok",
+      "deps": ["triage"],
+      "for_each": ["correctness", "security", "performance"],
+      "prompt": "Review this change through the {{item}} lens ONLY. Ignore every other concern.\n\n{{task}}\n\nOne defect per line, each with the line it lives on and why it fails."
+    },
+    {
+      "id": "check",
+      "kind": "verify",
+      "provider": "codex",
+      "voters": 2,
+      "deps": ["audit#0", "audit#1", "audit#2"],
+      "prompt": "{{inputs}}"
+    },
+    {
+      "id": "findings",
+      "kind": "reduce",
+      "op": "dedupe",
+      "deps": ["quick", "check"]
+    }
+  ]
+}

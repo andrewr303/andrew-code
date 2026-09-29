@@ -1,0 +1,33 @@
+{
+  "name": "discovery-loop",
+  "_comment": "loop until done + adversarial verification. For work of unknown size, where finding one issue reveals three more. Finders run in parallel on different search modalities (each is blind to what the others surface); every round dedupes against EVERYTHING ever seen, and the run stops after two consecutive rounds turn up nothing new.",
+  "budget": {"max_nodes": 16, "max_calls": 80, "max_rounds": 4},
+  "repeat": {"max_rounds": 4, "stop_after_dry_rounds": 2},
+  "nodes": [
+    {
+      "id": "find",
+      "kind": "work",
+      "provider": "opencode",
+      "for_each": [
+        "by container: walk each module/package boundary",
+        "by data flow: follow untrusted input to where it is used",
+        "by error path: read what happens when each call fails"
+      ],
+      "prompt": "TASK: {{task}}\n\nSearch modality for THIS pass: {{item}}\nRound {{round}}.\n\nAlready surfaced in earlier rounds — do NOT repeat any of these:\n{{seen}}\n\nReturn only NEW findings, one per line, each with a file:line and a one-sentence claim. If you find nothing new, return: NO NEW FINDINGS."
+    },
+    {
+      "id": "check",
+      "kind": "verify",
+      "provider": "grok",
+      "voters": 3,
+      "deps": ["find#0", "find#1", "find#2"],
+      "prompt": "{{inputs}}"
+    },
+    {
+      "id": "keep",
+      "kind": "reduce",
+      "op": "dedupe",
+      "deps": ["check"]
+    }
+  ]
+}

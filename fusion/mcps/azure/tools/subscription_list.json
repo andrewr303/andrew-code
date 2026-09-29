@@ -1,0 +1,48 @@
+{
+  "name": "subscription_list",
+  "description": "List all Azure subscriptions for the current account. Returns subscriptionId, displayName, state, tenantId, and isDefault for each subscription. The isDefault field indicates the user's default subscription as resolved from the Azure CLI profile (configured via 'az account set') or, if not set there, from the AZURE_SUBSCRIPTION_ID environment variable. When the user has not specified a subscription, prefer the subscription where isDefault is true. If no default can be determined from either source and multiple subscriptions exist, ask the user which subscription to use.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "tenant": {
+        "type": "string",
+        "description": "The Microsoft Entra ID tenant ID or name. This can be either the GUID identifier or the display name of your Entra ID tenant."
+      },
+      "auth-method": {
+        "type": "string",
+        "description": "Authentication method to use. Options: 'credential' (Azure CLI/managed identity), 'key' (access key), or 'connectionString'.",
+        "enum": [
+          "Credential",
+          "Key",
+          "ConnectionString"
+        ]
+      },
+      "retry-delay": {
+        "type": "number",
+        "description": "Initial delay in seconds between retry attempts. For exponential backoff, this value is used as the base."
+      },
+      "retry-max-delay": {
+        "type": "number",
+        "description": "Maximum delay in seconds between retries, regardless of the retry strategy."
+      },
+      "retry-max-retries": {
+        "type": "integer",
+        "description": "Maximum number of retry attempts for failed operations before giving up."
+      },
+      "retry-mode": {
+        "type": "string",
+        "description": "Retry strategy to use. 'fixed' uses consistent delays, 'exponential' increases delay between attempts.",
+        "enum": [
+          "Fixed",
+          "Exponential"
+        ]
+      },
+      "retry-network-timeout": {
+        "type": "number",
+        "description": "Network operation timeout in seconds. Operations taking longer than this will be cancelled."
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  }
+}

@@ -1,0 +1,37 @@
+digraph MetaLoopLifecycle {
+  graph [rankdir=LR, bgcolor="#FCFCFD", pad="0.3", nodesep="0.4", ranksep="0.55", splines=ortho, fontname="Arial", label="MetaLoop Run Lifecycle — Bounded Plan, Execute, Verify, Escalate", labelloc=t, fontsize=22, fontcolor="#111827"];
+  node [shape=box, style="rounded,filled", fontname="Arial", fontsize=10, margin="0.14,0.10", color="#334155", fillcolor="#FFFFFF"];
+  edge [fontname="Arial", fontsize=9, color="#64748B", fontcolor="#475569", arrowsize=0.72];
+
+  intake [label="0. Intake\nGoal, repo, constraints,\nrisk and approval policy", fillcolor="#F8FAFC"];
+  snapshot [label="1. Context Snapshot\nRelevant files, tests, git state,\nprovider availability", fillcolor="#E2E8F0"];
+  plan1 [label="2. GPT Plan v1\nTask DAG, contracts,\ncritical-path ownership", fillcolor="#DBEAFE", color="#1D4ED8"];
+  consult [label="3. Fable Preflight?\nAuto policy or explicit request", shape=diamond, fillcolor="#FED7AA", color="#C2410C"];
+  memo [label="Advisor Memo\napprove • revise • stop", fillcolor="#FED7AA", color="#C2410C", style="rounded,filled,dashed"];
+  plan2 [label="4. GPT Plan v2\nApply or explicitly override advice\nFreeze TaskSpecs", fillcolor="#DBEAFE", color="#1D4ED8"];
+  waves [label="5. Dependency Waves\nDispatch expert + fast workers\nGPT handles critical tasks", fillcolor="#F5F3FF", color="#7C3AED"];
+  collect [label="6. Collect Results\nValidate schemas, artifacts,\nreceipts, absence and confidence", fillcolor="#E2E8F0"];
+  localgate [label="7. Per-Task Gate", shape=diamond, fillcolor="#DCFCE7", color="#15803D"];
+  repair [label="8. Bounded Repair\nAlternate worker / promote tier /\nGPT takeover", fillcolor="#FEE2E2", color="#B91C1C"];
+  integrate [label="9. GPT Integration\nReconcile, merge, explain,\nrun cross-task checks", fillcolor="#DBEAFE", color="#1D4ED8"];
+  finalgate [label="10. Final Gate\nTests • build • typecheck • lint\nacceptance + scope checks", shape=diamond, fillcolor="#DCFCE7", color="#15803D"];
+  finaladvice [label="11. Final Fable Review?\nOnly high-risk / taste-sensitive /\nunresolved tradeoffs", shape=diamond, fillcolor="#FED7AA", color="#C2410C"];
+  publish [label="12. Publish\nDeliverable + caveats +\nmodel/task/verification audit", fillcolor="#DCFCE7", color="#15803D"];
+  stop [label="Stop safely\nPartial artifacts + blockers +\nno false success", fillcolor="#FEE2E2", color="#B91C1C"];
+
+  intake -> snapshot -> plan1 -> consult;
+  consult -> memo [label="yes"];
+  consult -> plan2 [label="no"];
+  memo -> plan2 [style=dashed];
+  plan2 -> waves -> collect -> localgate;
+  localgate -> integrate [label="all pass"];
+  localgate -> repair [label="fail"];
+  repair -> waves [label="repair round < cap", color="#B91C1C"];
+  repair -> stop [label="cap / budget hit", color="#B91C1C"];
+  integrate -> finalgate;
+  finalgate -> finaladvice [label="pass"];
+  finalgate -> repair [label="fail", color="#B91C1C"];
+  finaladvice -> publish [label="not needed / approved"];
+  finaladvice -> integrate [label="revise once", style=dashed, color="#C2410C"];
+  finaladvice -> stop [label="stop / unresolved", color="#C2410C"];
+}

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# fusion/scripts/hive.sh — nested hive orchestrator wrapper.
+# Sets PYTHONPATH and runs `python -m fusion_swarm.hive <args>`.
+#   bash hive.sh "task..." --dry-run
+#   bash hive.sh "task..." --captains muse,glm --children-per-captain 4
+# Also reachable as:
+#   bash swarm.sh hive "task..." --dry-run
+#   bash fusion.sh hive "task..." --dry-run
+set -uo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYROOT="$DIR/../python"
+PY="${FUSION_PYTHON:-}"
+if [ -z "$PY" ]; then
+  if command -v python >/dev/null 2>&1; then PY=python
+  elif command -v py >/dev/null 2>&1; then PY=py
+  elif command -v python3 >/dev/null 2>&1; then PY=python3
+  else echo "[fusion] no python found (set FUSION_PYTHON)" >&2; exit 127; fi
+fi
+PYTHONPATH="$PYROOT${PYTHONPATH:+:$PYTHONPATH}" PYTHONIOENCODING=utf-8 PYTHONUTF8=1 \
+  "$PY" -m fusion_swarm.hive "$@"

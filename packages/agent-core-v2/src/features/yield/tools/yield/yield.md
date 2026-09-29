@@ -1,0 +1,1 @@
+Submit a structured result for this subagent run. Call once when the task is done: success as {"data": <your output>} or failure as {"error": "message"}. The payload is validated against the parent-declared output schema (when one was given) and handed to the parent directly — no prose to parse. Yielding ends your turn.

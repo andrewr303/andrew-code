@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Fusion">
+  <rect width="128" height="128" rx="28" fill="#151515"/>
+  <rect x="10" y="10" width="108" height="108" rx="24" fill="#0891B2"/>
+  <path d="M28 92L64 24L100 92H78L64 62L50 92H28Z" fill="white" opacity="0.95"/>
+  <circle cx="96" cy="32" r="14" fill="#0F766E"/>
+  <text x="64" y="108" text-anchor="middle" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="24" font-weight="700" fill="white">FU</text>
+</svg>

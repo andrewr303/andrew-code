@@ -1,0 +1,9 @@
+{
+  "name": "list_orgs",
+  "description": "List all organizations for the current user. Useful when looking up an org slug or ID.",
+  "inputSchema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {}
+  }
+}

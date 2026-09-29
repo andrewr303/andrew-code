@@ -1,0 +1,34 @@
+{
+  "name": "aws___read_documentation",
+  "description": "Fetch full AWS doc pages as markdown. `search_documentation` already returns verbatim page chunks, so don't re-read a URL whose chunk you already have to \"confirm\" or \"round out\" an answer -- the chunk is the real page text; treat it as authoritative.\n\nReading the full page is justified ONLY when the chunks genuinely lack the content:\n- an enumeration or aggregation (\"list all X\", \"how many X\") needs the complete set and the chunks show only part of it;\n- no search result is on-topic after refining the query, and a known doc URL would have the answer.\nOtherwise, answer from the chunks. Use exact URLs from `search_documentation`; don't guess slugs.\n\nInput: `requests: [{url, max_length?, start_index?}]`. Batch 2-5.\n- `max_length` default 10000.\n- `start_index` default 0; use prior `end_index` to continue, TOC offset to jump.\n\nAllow-listed prefixes: docs.aws.amazon.com; aws.amazon.com (not /marketplace); repost.aws/knowledge-center; docs.amplify.aws; ui.docs.amplify.aws; github.com/{aws-cloudformation/aws-cloudformation-templates, aws-samples/{aws-cdk-examples, generative-ai-cdk-constructs-samples, serverless-patterns}, awsdocs/aws-cdk-guide, awslabs/aws-solutions-constructs, cdklabs/cdk-nag} (README on `main`); constructs.dev/packages/{@aws-cdk-containers, @aws-cdk, @cdk-cloudformation, aws-analytics-reference-architecture, aws-cdk-lib, cdk-amazon-chime-resources, cdk-aws-lambda-powertools-layer, cdk-ecr-deployment, cdk-lambda-powertools-python-layer, cdk-serverless-clamscan, cdk8s, cdk8s-plus-33}; strandsagents.com/latest/documentation/docs/.\n\nOutput: SUCCESS -- markdown + `total_length, start_index, end_index, truncated, redirected_url?` (truncated includes TOC with char ranges). ERROR -- `error_code` in {not_found, invalid_url, throttled, downstream_error, validation_error}.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "requests": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "Doc URL with allow-listed prefix; use exact URL from search."
+            },
+            "max_length": {
+              "type": "integer",
+              "description": "Chars returned (default 10000)."
+            },
+            "start_index": {
+              "type": "integer",
+              "description": "Char offset (default 0). Use prior `end_index` to continue, or TOC offset to jump."
+            }
+          },
+          "required": [
+            "url"
+          ]
+        },
+        "description": "List of `{url, max_length?, start_index?}`. Batch 2-5."
+      }
+    },
+    "required": []
+  }
+}

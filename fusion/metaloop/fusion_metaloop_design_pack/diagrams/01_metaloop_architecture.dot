@@ -1,0 +1,73 @@
+digraph MetaLoopArchitecture {
+  graph [rankdir=LR, bgcolor="#FCFCFD", pad="0.3", nodesep="0.45", ranksep="0.75", splines=ortho, fontname="Arial", label="Fusion MetaLoop — Board Advisor + Tiered Swarm", labelloc=t, fontsize=22, fontcolor="#111827"];
+  node [shape=box, style="rounded,filled", fontname="Arial", fontsize=11, margin="0.14,0.10", color="#334155", fillcolor="#FFFFFF", fontcolor="#111827"];
+  edge [fontname="Arial", fontsize=9, color="#64748B", fontcolor="#475569", arrowsize=0.75];
+
+  user [label="User Goal\n+ repo / files / constraints", shape=oval, fillcolor="#F8FAFC"];
+
+  subgraph cluster_host {
+    label="HOST PLANE — judgment, ownership, integration";
+    color="#2563EB"; penwidth=1.5; style="rounded"; bgcolor="#EFF6FF";
+    gpt [label="Chief Operator\nGPT-5.6 Sol\n\nPlan • decompose • route\ncritical work • verify\nsynthesize • escalate", fillcolor="#DBEAFE", color="#1D4ED8", penwidth=1.6];
+    critical [label="Chief-Operator Workbench\n\nAuth / security\nSchemas / migrations\nCross-cutting architecture\nPublic contracts\nFinal merge", fillcolor="#FFFFFF", color="#3B82F6"];
+    integration [label="Integration & Final Answer\n\nReconcile patches\nResolve conflicts\nExplain decisions\nEmit audit trail", fillcolor="#FFFFFF", color="#3B82F6"];
+  }
+
+  subgraph cluster_advisor {
+    label="BOARD ADVISOR — lateral, consult-only";
+    color="#B45309"; penwidth=1.5; style="rounded,dashed"; bgcolor="#FFF7ED";
+    fable [label="Board Advisor\nFable 5\n\nStrategy critique\nDecomposition review\nRisk spotting\nArchitecture / taste\nStop-or-revise memo", fillcolor="#FED7AA", color="#C2410C", penwidth=1.6, style="rounded,filled,dashed"];
+  }
+
+  subgraph cluster_control {
+    label="CONTROL PLANE — deterministic orchestration";
+    color="#475569"; style="rounded"; bgcolor="#F8FAFC";
+    state [label="Run State + Task DAG\nTaskSpec • dependencies\nbudgets • attempts • receipts", fillcolor="#E2E8F0"];
+    router [label="Policy Router\n\nHard risk overrides\nExpert vs fast tier\nFallback chain\nConcurrency caps", fillcolor="#E2E8F0"];
+    collector [label="Result Collector\n\nSchema validation\nArtifact inventory\nEvidence + confidence\nAbsence tracking", fillcolor="#E2E8F0"];
+    gate [label="Deterministic Gate\n\nTests • typecheck • build\nlinters • diff constraints\nacceptance criteria", fillcolor="#DCFCE7", color="#15803D", penwidth=1.6];
+    escalation [label="Escalation Router\n\nFast → expert\nExpert → GPT\nSystemic → Fable\nIrreversible → human", fillcolor="#FEE2E2", color="#B91C1C"];
+  }
+
+  subgraph cluster_expert {
+    label="EXPERT LABOR LAYER — hard / ambiguous / broad";
+    color="#7C3AED"; style="rounded"; bgcolor="#F5F3FF";
+    grok [label="Expert A\nGrok 4.5\n\nNovel diagnosis\nAdversarial edge cases\nCurrent-context research\nAlternative architecture", fillcolor="#EDE9FE", color="#7C3AED"];
+    glm [label="Expert B\nGLM 5.2 via OpenCode\n\nRepo-scale analysis\nComplex implementation\nLarge-context refactor\nDeep review", fillcolor="#EDE9FE", color="#7C3AED"];
+  }
+
+  subgraph cluster_fast {
+    label="FAST LABOR LAYER — simple / bounded / throughput";
+    color="#0891B2"; style="rounded"; bgcolor="#ECFEFF";
+    agy [label="Fast A\nGemini 3.5 Flash via Agy\n\nScouting / inventory\nMechanical edits\nScaffolding\nBatch subtasks", fillcolor="#CFFAFE", color="#0891B2"];
+    copilot [label="Fast B\nGemini 3.5 Flash via Copilot\n\nFocused edits\nTests / docs\nDiff inspection\nSmall fixes", fillcolor="#CFFAFE", color="#0891B2"];
+  }
+
+  human [label="Human Approval\nfor destructive / paid-large / production actions", shape=hexagon, fillcolor="#FEF3C7", color="#B45309"];
+  done [label="Verified Deliverable\n+ run record", shape=oval, fillcolor="#DCFCE7", color="#15803D", penwidth=1.6];
+
+  user -> gpt [label="goal"];
+  gpt -> fable [label="consult when policy triggers", color="#C2410C"];
+  fable -> gpt [label="structured memo", style=dashed, color="#C2410C"];
+  gpt -> state [label="plan + TaskSpecs"];
+  gpt -> critical [label="retains high-risk work"];
+  state -> router;
+  router -> grok [label="expert route"];
+  router -> glm [label="expert route"];
+  router -> agy [label="fast route"];
+  router -> copilot [label="fast route"];
+  grok -> collector;
+  glm -> collector;
+  agy -> collector;
+  copilot -> collector;
+  critical -> collector [label="host artifacts"];
+  collector -> gate;
+  gate -> integration [label="pass", color="#15803D"];
+  gate -> escalation [label="fail / uncertain", color="#B91C1C"];
+  escalation -> router [label="retry / stronger tier", color="#B91C1C"];
+  escalation -> gpt [label="chief takeover", color="#B91C1C"];
+  escalation -> fable [label="systemic critique", style=dashed, color="#C2410C"];
+  escalation -> human [label="approval required", color="#B45309"];
+  human -> gpt [label="approve / reject"];
+  integration -> done;
+}

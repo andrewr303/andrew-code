@@ -1,0 +1,41 @@
+{
+  "name": "kg-extract",
+  "_comment": "The knowledge-graph pipeline IS a task graph. Stages 4-6 fan out over chunks, one node per chunk, each constrained by the ontology; a reduce concatenates the JSON payloads; a human gate sits before the graph is written, because an unfused write is expensive to undo. Paste your ontology into every extraction prompt (verbatim) and your chunks into for_each, then feed the reduced output to: swarm.sh kg --op ingest --spec <file> --source <doc>",
+  "budget": {"max_nodes": 24, "max_calls": 40},
+  "nodes": [
+    {
+      "id": "entities",
+      "kind": "work",
+      "provider": "opencode",
+      "for_each": ["<chunk 1 text>", "<chunk 2 text>", "<chunk 3 text>"],
+      "prompt": "You are extracting knowledge for a graph with this ontology:\n<ONTOLOGY VERBATIM — paste from `kg --op ontology`>\n\nFrom the text below, extract every entity matching the ontology types.\nFor each: {type, name, aliases[], attrs{}, evidence: \"<exact sentence>\", confidence}\n\nRules:\n- Only types from the ontology. Unknown-but-recurring concepts go under \"candidates\".\n- Evidence must be a verbatim quote containing the mention.\n- Do NOT merge distinct mentions; deduplication happens later.\n- Return one JSON object with keys \"entities\" and \"candidates\". Nothing else.\n\n<text>\n{{item}}"
+    },
+    {
+      "id": "relations",
+      "kind": "work",
+      "provider": "codex",
+      "deps": ["entities#0", "entities#1", "entities#2"],
+      "prompt": "Ontology (relations with domain/range):\n<ONTOLOGY VERBATIM>\n\nEntities already extracted:\n{{inputs}}\n\nExtract relations BETWEEN THOSE ENTITIES ONLY. Never introduce a new entity.\nFor each: {head, rel, tail, evidence: \"<exact sentence>\", confidence, valid_from?, valid_until?}\n\nAssert only relations the evidence sentence states DIRECTLY. Co-occurrence is not assertion — \"X discussed Y\" is not OWNS.\nReturn one JSON object with keys \"entities\" (pass them through) and \"relations\". Nothing else."
+    },
+    {
+      "id": "precision_check",
+      "kind": "verify",
+      "provider": "grok",
+      "voters": 3,
+      "deps": ["relations"],
+      "prompt": "{{relations}}\n\nFor each extracted relation, the claim under review is: \"the evidence sentence directly asserts this relation, and the endpoint types are correct.\""
+    },
+    {
+      "id": "payload",
+      "kind": "reduce",
+      "op": "concat",
+      "deps": ["relations", "precision_check"]
+    },
+    {
+      "id": "write_graph",
+      "kind": "human",
+      "deps": ["payload"],
+      "reason": "writes facts into the shared knowledge graph; an unfused or wrongly-typed write is expensive to undo and poisons every later multi-hop answer"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "start_dev_server",
+  "description": "Start the Trigger.dev dev server (`trigger dev`) in the background. Waits up to 30 seconds for the worker to be ready. Use `dev_server_status` to check output and `stop_dev_server` to stop it.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "configPath": {
+        "type": "string",
+        "description": "The path to the trigger.config.ts file or project directory. Only needed when the trigger.config.ts file is not at the root dir."
+      }
+    },
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

@@ -1,0 +1,151 @@
+<!doctype html>
+<!--
+  Source for assets/brand/auto-router.png — the Auto Router "how it routes"
+  diagram used by the root README. Render at deviceScaleFactor: 2 (see
+  render.py). Palette + type match the other brand visuals:
+  indigo #6366f1 -> violet #8b5cf6 -> purple #a855f7 -> fuchsia #c026d3 on
+  near-black #0a0c14; Inter (display/body) + JetBrains Mono (code).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+  :root{
+    --bg:#0a0c14; --indigo:#6366f1; --violet:#8b5cf6; --purple:#a855f7; --fuchsia:#c026d3;
+    --ink:#f5f5f7; --muted:#9aa4b8; --dim:#6b7280;
+    --card:rgba(22,24,38,.72); --card2:rgba(15,17,28,.9);
+    --border:rgba(139,92,246,.20); --border2:rgba(148,163,184,.14);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1280px;height:650px}
+  body{
+    background:var(--bg);
+    font-family:Inter,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink); position:relative; overflow:hidden;
+  }
+  .glow{position:absolute;border-radius:50%;filter:blur(90px);opacity:.55;pointer-events:none}
+  .g1{width:620px;height:620px;left:-160px;top:-220px;background:radial-gradient(circle,#4c1d95 0%,transparent 70%)}
+  .g2{width:560px;height:560px;right:-160px;top:-160px;background:radial-gradient(circle,#7e22ce 0%,transparent 70%);opacity:.4}
+  .g3{width:680px;height:420px;left:50%;bottom:-260px;transform:translateX(-50%);background:radial-gradient(circle,#6366f1 0%,transparent 70%);opacity:.30}
+  .dots{position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,.05) 1px,transparent 1px);background-size:26px 26px;opacity:.5}
+
+  .wrap{position:relative;padding:38px 56px}
+  .eyebrow{display:flex;align-items:center;gap:10px;justify-content:center;
+    font-size:15px;font-weight:700;letter-spacing:.22em;color:#b9a7f5;text-transform:uppercase}
+  .eyebrow .dot{width:8px;height:8px;border-radius:50%;background:var(--purple);box-shadow:0 0 12px var(--purple)}
+  h1{text-align:center;font-size:46px;font-weight:800;letter-spacing:-.02em;margin-top:12px;line-height:1.05}
+  h1 .grad{background:linear-gradient(90deg,#c4b5fd,#e879f9);-webkit-background-clip:text;background-clip:text;color:transparent}
+
+  .row{display:flex;align-items:stretch;gap:18px;margin-top:34px}
+  .card{
+    position:relative;flex:1;background:var(--card);border:1px solid var(--border);
+    border-radius:20px;padding:22px 22px 24px;backdrop-filter:blur(6px);
+    box-shadow:0 30px 60px -30px rgba(124,58,237,.45), inset 0 1px 0 rgba(255,255,255,.04);
+  }
+  .card::after{content:"";position:absolute;left:18%;right:18%;bottom:-1px;height:2px;
+    background:linear-gradient(90deg,transparent,rgba(168,85,247,.6),transparent);border-radius:2px}
+  .chead{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+  .tile{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+    background:linear-gradient(135deg,var(--violet),var(--purple));box-shadow:0 8px 20px -6px rgba(168,85,247,.7)}
+  .tile svg{width:22px;height:22px;stroke:#fff;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+  .step{font-size:13px;font-weight:700;letter-spacing:.16em;color:#b9a7f5;text-transform:uppercase}
+  .ctitle{font-size:21px;font-weight:700;margin-top:1px}
+  .csub{font-size:14.5px;color:var(--muted);line-height:1.5;margin-bottom:14px}
+
+  .task{font-family:"JetBrains Mono",monospace;font-size:13px;color:#cdd3e1;
+    background:var(--card2);border:1px solid var(--border2);border-radius:10px;padding:9px 12px;margin-bottom:9px;display:flex;justify-content:space-between;align-items:center}
+  .task .tag{font-size:11px;color:var(--dim);font-weight:500}
+
+  .score{margin-bottom:12px}
+  .score .lab{display:flex;justify-content:space-between;font-size:13.5px;margin-bottom:5px}
+  .score .name{font-family:"JetBrains Mono",monospace;color:#e7e9f0}
+  .score .val{font-family:"JetBrains Mono",monospace;color:var(--muted)}
+  .bar{height:9px;border-radius:6px;background:rgba(148,163,184,.16);overflow:hidden}
+  .bar > i{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,var(--indigo),var(--fuchsia))}
+  .win .name{color:#fff;font-weight:700}
+  .win .val{color:#34d399;font-weight:700}
+  .win .bar > i{background:linear-gradient(90deg,#a855f7,#34d399)}
+  .gate{font-family:"JetBrains Mono",monospace;font-size:12.5px;color:var(--dim);margin-top:2px;text-align:right}
+
+  .pick{display:flex;align-items:center;gap:12px;background:var(--card2);border:1px solid rgba(52,211,153,.28);
+    border-radius:14px;padding:14px 16px;margin-bottom:14px}
+  .pick .pin{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#34d399,#10b981);
+    display:flex;align-items:center;justify-content:center}
+  .pick .pin svg{width:18px;height:18px;stroke:#04221a;fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+  .pick .pm{font-family:"JetBrains Mono",monospace;font-weight:700;font-size:16px}
+  .pick .pc{margin-left:auto;font-family:"JetBrains Mono",monospace;color:#34d399;font-weight:700;font-size:15px}
+  .maprow{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--muted);margin-bottom:8px}
+  .maprow b{color:#e7e9f0;font-weight:600}
+  .maprow .c{font-family:"JetBrains Mono",monospace;color:var(--dim);margin-left:auto}
+  .arrowcol{display:flex;align-items:center}
+  .arrow svg{width:38px;height:24px}
+
+  .foot{margin:30px auto 0;text-align:center;color:var(--muted);font-size:15.5px;line-height:1.65}
+  .foot b{color:#e7e9f0}
+  .pill{display:inline-block;font-family:"JetBrains Mono",monospace;font-size:12.5px;color:#cdd3e1;
+    background:var(--card2);border:1px solid var(--border2);border-radius:999px;padding:3px 10px;margin:0 3px}
+</style>
+</head>
+<body>
+  <div class="glow g1"></div><div class="glow g2"></div><div class="glow g3"></div>
+  <div class="dots"></div>
+  <div class="wrap">
+    <div class="eyebrow"><span class="dot"></span> AUTO ROUTER <span class="dot"></span> ONE PICK, EVERY TASK</div>
+    <h1>The right model for <span class="grad">every task</span>, automatically</h1>
+
+    <div class="row">
+      <!-- Step 1: classify -->
+      <div class="card">
+        <div class="chead">
+          <div class="tile"><svg viewBox="0 0 24 24"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></div>
+          <div><div class="step">1 · Classify</div><div class="ctitle">Cheap model scores each</div></div>
+        </div>
+        <div class="csub">A small classifier reads the task &amp; a capability card per backend, scoring each <b style="color:#cdd3e1">0&ndash;1</b> on first-try success. It never sees price.</div>
+        <div class="score"><div class="lab"><span class="name">MiniMax-M3</span><span class="val">0.40</span></div><div class="bar"><i style="width:40%"></i></div></div>
+        <div class="score"><div class="lab"><span class="name">MiMo</span><span class="val">0.55</span></div><div class="bar"><i style="width:55%"></i></div></div>
+        <div class="score win"><div class="lab"><span class="name">GPT&#8209;5.5</span><span class="val">0.95</span></div><div class="bar"><i style="width:95%"></i></div></div>
+        <div class="gate">task: "refactor auth across 8 files"</div>
+      </div>
+
+      <div class="arrowcol"><div class="arrow"><svg viewBox="0 0 38 24"><defs><linearGradient id="a1" x1="0" x2="1"><stop offset="0" stop-color="#6366f1"/><stop offset="1" stop-color="#c026d3"/></linearGradient></defs><path d="M2 12h28" stroke="url(#a1)" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M28 5l8 7-8 7" stroke="url(#a1)" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div></div>
+
+      <!-- Step 2: select -->
+      <div class="card">
+        <div class="chead">
+          <div class="tile"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h6"/><circle cx="18" cy="16" r="3"/><path d="M20.5 18.5L23 21"/></svg></div>
+          <div><div class="step">2 · Select</div><div class="ctitle">Cheapest that's good enough</div></div>
+        </div>
+        <div class="csub">Pick the <b style="color:#cdd3e1">cheapest</b> candidate scoring <b style="color:#cdd3e1">&ge; 0.70</b>. Cost enters only here &mdash; so trivial turns go cheap and hard turns escalate.</div>
+        <div class="maprow"><span>trivial edit</span><b>&rarr; MiniMax&#8209;M3</b><span class="c">$</span></div>
+        <div class="maprow"><span>build a CRUD API</span><b>&rarr; MiMo</b><span class="c">$$</span></div>
+        <div class="maprow"><span>multi&#8209;file refactor</span><b>&rarr; GPT&#8209;5.5</b><span class="c">$$$$$</span></div>
+        <div class="maprow"><span>image task</span><b>&rarr; vision&#8209;capable only</b><span class="c">&#10003;</span></div>
+        <div class="gate">none clears 0.70 &rarr; take the best score</div>
+      </div>
+
+      <div class="arrowcol"><div class="arrow"><svg viewBox="0 0 38 24"><defs><linearGradient id="a2" x1="0" x2="1"><stop offset="0" stop-color="#6366f1"/><stop offset="1" stop-color="#c026d3"/></linearGradient></defs><path d="M2 12h28" stroke="url(#a2)" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M28 5l8 7-8 7" stroke="url(#a2)" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div></div>
+
+      <!-- Step 3: route -->
+      <div class="card">
+        <div class="chead">
+          <div class="tile"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="12" r="2.4"/><path d="M8 7l8 4M8 17l8-4"/></svg></div>
+          <div><div class="step">3 · Route</div><div class="ctitle">Run it on that backend</div></div>
+        </div>
+        <div class="csub">The real request goes to the chosen model with the full UltraCode envelope &amp; tool translation intact.</div>
+        <div class="pick"><div class="pin"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div class="pm">GPT&#8209;5.5</div><div class="pc">$$$$$</div></div>
+        <div class="maprow"><span><b>Cached</b> per task</span><span class="c">no re&#8209;score</span></div>
+        <div class="maprow"><span><b>Fails safe</b> to a default</span><span class="c">never breaks</span></div>
+        <div class="maprow"><span>Works as orchestrator <b>&amp;</b> worker</span><span class="c">both tiers</span></div>
+      </div>
+    </div>
+
+    <div class="foot">
+      The classifier scores <b>capability only</b> &mdash; never price &mdash; so routing can't be biased toward pricey models.<br>
+      Runs on the models <b>you</b> already pay for:
+      <span class="pill">MiniMax</span><span class="pill">MiMo</span><span class="pill">DeepSeek</span><span class="pill">GPT&#8209;5.5</span><span class="pill">local</span>
+    </div>
+  </div>
+</body>
+</html>

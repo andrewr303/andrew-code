@@ -1,0 +1,44 @@
+digraph MetaLoopWorktrees {
+  graph [rankdir=LR, bgcolor="#FCFCFD", pad="0.3", nodesep="0.45", ranksep="0.7", splines=ortho, fontname="Arial", label="Safe Parallel Coding — Proposal Mode by Default, Worktrees by Opt-In", labelloc=t, fontsize=22, fontcolor="#111827"];
+  node [shape=box, style="rounded,filled", fontname="Arial", fontsize=10, margin="0.14,0.10", color="#334155", fillcolor="#FFFFFF"];
+  edge [fontname="Arial", fontsize=9, color="#64748B", fontcolor="#475569", arrowsize=0.72];
+
+  repo [label="User Repository\nmain checkout", shape=folder, fillcolor="#E2E8F0"];
+  mode [label="workspace_mode?", shape=diamond, fillcolor="#F8FAFC"];
+
+  subgraph cluster_proposal {
+    label="PROPOSAL MODE — safest v1 default";
+    color="#0891B2"; style="rounded"; bgcolor="#ECFEFF";
+    capsule [label="Context Capsule\nselected files + constraints +\nbase commit + acceptance criteria", fillcolor="#CFFAFE", color="#0891B2"];
+    scratch [label="Throwaway Scratch Dirs\nno user-tree writes", fillcolor="#CFFAFE", color="#0891B2"];
+    suggestions [label="Structured Proposals\npatch text / file content /\nanalysis / test plan", fillcolor="#CFFAFE", color="#0891B2"];
+    hostapply [label="GPT applies approved changes\nin integration checkout", fillcolor="#DBEAFE", color="#1D4ED8"];
+  }
+
+  subgraph cluster_worktree {
+    label="WORKTREE MODE — real parallel implementation";
+    color="#7C3AED"; style="rounded"; bgcolor="#F5F3FF";
+    base [label="Freeze base commit\n+ dirty-tree check", fillcolor="#EDE9FE", color="#7C3AED"];
+    wt1 [label="Task Worktree A\nGrok / GLM", shape=folder, fillcolor="#EDE9FE", color="#7C3AED"];
+    wt2 [label="Task Worktree B\nAgy", shape=folder, fillcolor="#EDE9FE", color="#7C3AED"];
+    wt3 [label="Task Worktree C\nCopilot", shape=folder, fillcolor="#EDE9FE", color="#7C3AED"];
+    commits [label="Per-task commits / patches\n+ checks + receipts", fillcolor="#EDE9FE", color="#7C3AED"];
+    reconcile [label="GPT reconcile / cherry-pick\nconflict resolution\nno blind merge", fillcolor="#DBEAFE", color="#1D4ED8"];
+  }
+
+  gate [label="Unified Verification Gate\nfull tests + build + scope diff", fillcolor="#DCFCE7", color="#15803D", penwidth=1.6];
+  cleanup [label="Record run + remove temp state\nretain artifacts and logs", fillcolor="#E2E8F0"];
+
+  repo -> mode;
+  mode -> capsule [label="proposal"];
+  capsule -> scratch -> suggestions -> hostapply -> gate;
+  mode -> base [label="worktree"];
+  base -> wt1;
+  base -> wt2;
+  base -> wt3;
+  wt1 -> commits;
+  wt2 -> commits;
+  wt3 -> commits;
+  commits -> reconcile -> gate;
+  gate -> cleanup;
+}

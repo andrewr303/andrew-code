@@ -1,0 +1,57 @@
+{
+  "name": "fusion",
+  "version": "3.0.0+hive",
+  "description": "Nested multi-agent coding swarm + multi-model council for Codex. Architect (Fable 5.1 / Astra gpt-6-astra) designs a custom hive; captains are any live CLI; nested workers are real AndrewCode processes on one Hive Board (WAL sqlite + JSONL, no daemon). Codex conducts local CLI panelists through Fusion's bash adapters and stdlib Python swarm backend (panel, council, debate, vote, swarm, MoA, heavy, graph, ladder, breaker, ballot, MetaLoop, hive).",
+  "author": {
+    "name": "Andrew",
+    "url": "https://github.com/nyldn"
+  },
+  "license": "MIT",
+  "keywords": [
+    "multi-llm",
+    "multi-model",
+    "fusion",
+    "council",
+    "swarm",
+    "debate",
+    "orchestration",
+    "codex-plugin",
+    "copilot",
+    "opencode",
+    "grok",
+    "python",
+    "scripts",
+    "metaloop",
+    "board-advisor",
+    "fable",
+    "antigravity",
+    "tiered-swarm",
+    "hive",
+    "andrewcode",
+    "nested-swarm",
+    "astra",
+    "board"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Fusion",
+    "shortDescription": "Conduct nested AndrewCode hives and local model councils from Codex.",
+    "longDescription": "Fusion bundles Codex skills, bash adapters, provider detection, a learning ledger, and a stdlib Python swarm engine for panel, council, debate, vote, swarm, MoA, heavy, graph, ladder, breaker, ballot, verification-gate, MetaLoop, and Hive workflows. Hive adds an architect (Fable 5.1 / Astra gpt-6-astra) that may design a custom nested swarm, captains from any live CLI, nested AndrewCode worker processes, and one Hive Board (WAL sqlite + JSONL sidecar, no daemon). MetaLoop remains the asymmetric Board Advisor (Fable) + GPT Chief Operator + expert/fast labor tiers.",
+    "developerName": "Andrew",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Skills",
+      "Local scripts",
+      "Python backend"
+    ],
+    "defaultPrompt": [
+      "Use Fusion to get a second opinion.",
+      "Run a Fusion setup check.",
+      "Use a Fusion gate for this change.",
+      "Design a nested Hive swarm for this task."
+    ],
+    "logo": "./assets/app-icon.svg",
+    "composerIcon": "./assets/app-icon.svg",
+    "brandColor": "#2563EB"
+  }
+}

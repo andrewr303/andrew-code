@@ -1,0 +1,69 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "frontend-visualqa"
+dynamic = ["version"]
+description = "Gives coding agents eyes for frontend work — visual QA and verification powered by Yutori Navigator."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [
+    { name = "Yutori", email = "support@yutori.com" }
+]
+keywords = ["frontend", "visual-qa", "browser", "playwright", "mcp", "yutori", "navigator"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "httpx[http2]>=0.26.0",
+    "mcp>=1.1.2,<2",
+    "pillow>=10.0.0",
+    "playwright>=1.40.0",
+    "pydantic>=2.7.0",
+    "tenacity>=8.2.0",
+    "yutori>=0.6.0",
+    "yutori-navigator-overlay-runtime==0.4.0",
+]
+
+[project.urls]
+Homepage = "https://yutori.com"
+Repository = "https://github.com/yutori-ai/frontend-visualqa"
+
+[dependency-groups]
+dev = [
+    "jsonschema>=4.0.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.9.0",
+]
+
+[project.scripts]
+frontend-visualqa = "frontend_visualqa.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/frontend_visualqa"]
+
+[tool.hatch.build.targets.sdist]
+# docs/ holds README demo assets only (~17 MB, almost entirely two ~8 MB GIFs).
+# They aren't needed to build or test the package, and they don't render on PyPI
+# (the README references them by relative path), so keep them out of the sdist.
+# The wheel already ships only src/frontend_visualqa.
+exclude = ["/docs"]
+
+[tool.hatch.version]
+path = "src/frontend_visualqa/__init__.py"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 120

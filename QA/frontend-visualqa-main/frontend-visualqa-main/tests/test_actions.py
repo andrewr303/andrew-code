@@ -1,0 +1,929 @@
+from __future__ import annotations
+
+import asyncio
+import inspect
+import json
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from fakes import import_or_skip, instantiate_with_supported_kwargs, noop_sleep
+from frontend_visualqa.schemas import ViewportConfig
+
+
+def _import_actions_module():
+    return import_or_skip("frontend_visualqa.actions")
+
+
+def _build_action_executor(module: Any) -> Any:
+    """Construct an ``ActionExecutor`` with the fixed timeout/settle-delay tuning every test uses.
+
+    Every ``ActionExecutor``-exercising test in this file built one with this identical
+    ``navigation_timeout_ms=1_000, settle_delay_seconds=0`` call, differing only in how ``module``
+    was obtained beforehand. This is the shared constructor they delegate to now.
+    """
+    return instantiate_with_supported_kwargs(
+        module.ActionExecutor,
+        navigation_timeout_ms=1_000,
+        settle_delay_seconds=0,
+    )
+
+
+def _build_default_action_fixtures(module: Any) -> tuple[Any, FakePage, ViewportConfig]:
+    """Build the default ActionExecutor, FakePage, and ViewportConfig used by most tests here.
+
+    21 tests each repeated this identical arrange block (an ``ActionExecutor`` via
+    ``_build_action_executor``, a plain ``FakePage()``, and a default ``ViewportConfig()``) for
+    actions that don't need overlay wiring or a pre-seeded page. Several of them additionally
+    queue a result onto the returned page's ``evaluate_results`` (or reassign it) before invoking
+    the action; that doesn't need its own variant since it's just a call on the already-built page.
+    This is the shared helper they all delegate to now.
+    """
+    executor = _build_action_executor(module)
+    page = FakePage()
+    viewport = ViewportConfig()
+    return executor, page, viewport
+
+
+def _build_overlay_action_fixtures(module: Any, overlay: Any) -> tuple[Any, ViewportConfig]:
+    """Build an ActionExecutor wired to ``overlay``, plus a default ViewportConfig.
+
+    6 tests each repeated this identical arrange block (an ``ActionExecutor`` via
+    ``_build_action_executor`` with its ``.overlay`` set to a pre-built double, and a default
+    ``ViewportConfig()``) for actions that preview through an overlay double but use a custom,
+    call-order-tracking page. This is the shared helper they delegate to now.
+    """
+    executor = _build_action_executor(module)
+    executor.overlay = overlay
+    viewport = ViewportConfig()
+    return executor, viewport
+
+
+async def _call_execute_action(
+    executor: Any,
+    page: Any,
+    action_name: str,
+    arguments: dict[str, Any],
+    viewport: ViewportConfig,
+) -> Any:
+    method = getattr(executor, "execute_action", None) or getattr(executor, "execute", None)
+    if method is None:
+        raise AssertionError("ActionExecutor must expose execute_action(...) or execute(...)")
+    signature = inspect.signature(method)
+    kwargs: dict[str, Any] = {}
+    session = SimpleNamespace(page=page, viewport=viewport)
+
+    if "page" in signature.parameters:
+        kwargs["page"] = page
+    if "session" in signature.parameters:
+        kwargs["session"] = session
+    if "action_name" in signature.parameters:
+        kwargs["action_name"] = action_name
+    if "name" in signature.parameters:
+        kwargs["name"] = action_name
+    if "arguments" in signature.parameters:
+        kwargs["arguments"] = arguments
+    if "args" in signature.parameters:
+        kwargs["args"] = arguments
+    if "action" in signature.parameters:
+        kwargs["action"] = {"name": action_name, **arguments}
+    if "viewport" in signature.parameters:
+        kwargs["viewport"] = viewport
+    if "viewport_config" in signature.parameters:
+        kwargs["viewport_config"] = viewport
+
+    return await method(**kwargs)
+
+
+async def _call_execute_tool_call(
+    executor: Any,
+    page: Any,
+    action_name: str,
+    arguments: dict[str, Any],
+    viewport: ViewportConfig,
+) -> Any:
+    session = SimpleNamespace(page=page, viewport=viewport)
+    tool_call = SimpleNamespace(function=SimpleNamespace(name=action_name, arguments=json.dumps(arguments)))
+    return await executor.execute_tool_call(session, tool_call)
+
+
+class FakeMouse:
+    def __init__(self) -> None:
+        self.clicks: list[tuple[int, int, str]] = []
+        self.click_counts: list[int] = []
+        self.double_clicks: list[tuple[int, int]] = []
+        self.moves: list[tuple[int, int]] = []
+        self.wheels: list[tuple[float, float]] = []
+        self.down_count = 0
+        self.up_count = 0
+
+    async def click(self, x: int, y: int, *, button: str = "left", click_count: int = 1) -> None:
+        self.clicks.append((x, y, button))
+        self.click_counts.append(click_count)
+
+    async def dblclick(self, x: int, y: int) -> None:
+        self.double_clicks.append((x, y))
+
+    async def move(self, x: int, y: int, *, steps: int | None = None) -> None:
+        del steps
+        self.moves.append((x, y))
+
+    async def wheel(self, delta_x: float, delta_y: float) -> None:
+        self.wheels.append((delta_x, delta_y))
+
+    async def down(self) -> None:
+        self.down_count += 1
+
+    async def up(self) -> None:
+        self.up_count += 1
+
+
+class FakeKeyboard:
+    def __init__(self) -> None:
+        self.typed: list[str] = []
+        self.pressed: list[str] = []
+        self.downs: list[str] = []
+        self.ups: list[str] = []
+
+    async def type(self, text: str) -> None:
+        self.typed.append(text)
+
+    async def press(self, key: str) -> None:
+        self.pressed.append(key)
+
+    async def down(self, key: str) -> None:
+        self.downs.append(key)
+
+    async def up(self, key: str) -> None:
+        self.ups.append(key)
+
+
+class FakePage:
+    def __init__(self) -> None:
+        self.mouse = FakeMouse()
+        self.keyboard = FakeKeyboard()
+        self.url = "http://fixture.local/start"
+        self.viewport_size = {"width": 1280, "height": 800}
+        self.goto_calls: list[tuple[str, dict[str, Any]]] = []
+        self.reload_calls: list[dict[str, Any]] = []
+        self.go_back_calls: list[dict[str, Any]] = []
+        self.go_forward_calls: list[dict[str, Any]] = []
+        self.wait_states: list[tuple[str, dict[str, Any]]] = []
+        self.evaluate_results: list[Any] = []
+        self.evaluate_calls: list[tuple[str, tuple[Any, ...]]] = []
+        self.aria_snapshot_result: str | None = None
+
+    async def goto(self, url: str, **kwargs: Any) -> SimpleNamespace:
+        self.url = url
+        self.goto_calls.append((url, kwargs))
+        return SimpleNamespace(url=url)
+
+    async def reload(self, **kwargs: Any) -> SimpleNamespace:
+        self.reload_calls.append(kwargs)
+        return SimpleNamespace(url=self.url)
+
+    async def go_back(self, **kwargs: Any) -> None:
+        self.go_back_calls.append(kwargs)
+        self.url = "http://fixture.local/previous"
+        return None
+
+    async def go_forward(self, **kwargs: Any) -> None:
+        self.go_forward_calls.append(kwargs)
+        self.url = "http://fixture.local/next"
+        return None
+
+    async def wait_for_load_state(self, state: str, **kwargs: Any) -> None:
+        self.wait_states.append((state, kwargs))
+
+    async def evaluate(self, script: str, *args: Any) -> Any:
+        self.evaluate_calls.append((script, args))
+        if "document.readyState !== 'complete'" in script:
+            return True
+        if self.evaluate_results:
+            return self.evaluate_results.pop(0)
+        raise AssertionError("No evaluate result queued")
+
+    def locator(self, selector: str) -> SimpleNamespace:
+        assert selector == "body"
+        return SimpleNamespace(aria_snapshot=AsyncMock(return_value=self.aria_snapshot_result))
+
+
+def _make_overlay_enabled_page(call_order: list[tuple[Any, ...]]) -> FakePage:
+    page = FakePage()
+
+    async def _click(x: int, y: int, *, button: str = "left", click_count: int = 1) -> None:
+        call_order.append(("click", x, y, button, click_count))
+
+    async def _goto(url: str, **kwargs: Any) -> SimpleNamespace:
+        call_order.append(("goto", url, kwargs))
+        page.url = url
+        return SimpleNamespace(url=url)
+
+    async def _wait_for_load_state(state: str, **kwargs: Any) -> None:
+        call_order.append(("wait_for_load_state", state, kwargs))
+
+    page.mouse.click = AsyncMock(side_effect=_click)
+    page.goto = AsyncMock(side_effect=_goto)
+    page.wait_for_load_state = AsyncMock(side_effect=_wait_for_load_state)
+    return page
+
+
+def _build_overlay_call_order_fixtures(
+    module: Any,
+) -> tuple[list[tuple[Any, ...]], FakePage, MagicMock, Any, ViewportConfig]:
+    """Build the shared overlay call-order arrange block.
+
+    6 overlay-preview tests each repeated this identical arrange block: a call-order list, an
+    overlay-enabled ``FakePage`` recording into it, a bare ``MagicMock`` overlay double, and
+    the overlay-wired executor/viewport pair from :func:`_build_overlay_action_fixtures`. They
+    differ only in which overlay coroutines (``preview_action`` / ``set_status``) and page mouse
+    methods they wire up afterwards, so this helper stops at the common part. Wiring those side
+    effects after the fact is equivalent to wiring them before: the executor holds a reference
+    to this same overlay object rather than a copy of it.
+    """
+    call_order: list[tuple[Any, ...]] = []
+    page = _make_overlay_enabled_page(call_order)
+    overlay = MagicMock()
+    executor, viewport = _build_overlay_action_fixtures(module, overlay)
+    return call_order, page, overlay, executor, viewport
+
+
+def _build_move_down_up_overlay_fixtures(
+    module: Any,
+) -> tuple[list[tuple[Any, ...]], FakePage, MagicMock, Any, ViewportConfig]:
+    """Build the overlay-preview + mouse move/down/up call-order fixture set.
+
+    2 tests (mouse_down/mouse_up and drag) each repeated this identical arrange block: a
+    call-order-tracking page with mouse.move/down/up wired to append to it, an overlay double
+    whose preview_action does the same, and the overlay-wired executor/viewport pair. This is
+    the shared helper they delegate to now.
+    """
+    call_order, page, overlay, executor, viewport = _build_overlay_call_order_fixtures(module)
+
+    async def _move(x: int, y: int, *, steps: int | None = None) -> None:
+        call_order.append(("move", x, y))
+
+    async def _down() -> None:
+        call_order.append(("down",))
+
+    async def _up() -> None:
+        call_order.append(("up",))
+
+    page.mouse.move = AsyncMock(side_effect=_move)
+    page.mouse.down = AsyncMock(side_effect=_down)
+    page.mouse.up = AsyncMock(side_effect=_up)
+
+    async def _preview_action(action_type: str, **kwargs: Any) -> None:
+        call_order.append(("preview_action", action_type, kwargs))
+
+    overlay.preview_action = AsyncMock(side_effect=_preview_action)
+    return call_order, page, overlay, executor, viewport
+
+
+def test_render_action_trace_formats_scaled_coordinates() -> None:
+    module = _import_actions_module()
+    result = module.render_action_trace("left_click", {"coordinates": [500, 250]}, width=1280, height=800)
+    assert result == "left_click([640, 200])"
+
+
+def test_render_action_trace_falls_through_on_empty_coordinates() -> None:
+    module = _import_actions_module()
+
+    # Navigator sometimes emits a click/scroll/drag with empty or malformed
+    # coordinates (it intends to act on a ref). These must not raise; they fall
+    # through to the generic renderer instead of crashing the whole run.
+    click = module.render_action_trace("left_click", {"coordinates": []}, width=1280, height=800)
+    assert click == "left_click(coordinates=[])"
+
+    scroll = module.render_action_trace(
+        "scroll", {"coordinates": [], "direction": "down", "amount": 3}, width=1280, height=800
+    )
+    assert "scroll(" in scroll and "denormalize" not in scroll
+
+    drag = module.render_action_trace(
+        "drag", {"start_coordinates": [10, 10], "coordinates": [None, 5]}, width=1280, height=800
+    )
+    assert drag.startswith("drag(")
+
+
+def test_tool_counts_as_interaction_marks_read_only_expanded_tools_non_interactive() -> None:
+    module = _import_actions_module()
+
+    assert module.tool_counts_as_interaction("find") is False
+    assert module.tool_counts_as_interaction("extract_elements") is False
+    assert module.tool_counts_as_interaction("set_element_value") is True
+    assert module.tool_counts_as_interaction("left_click") is True
+
+
+@pytest.mark.asyncio
+async def test_execute_action_left_click_scales_coordinates_before_dispatch() -> None:
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+
+    await _call_execute_action(executor, page, "left_click", {"coordinates": [500, 250]}, viewport)
+
+    assert page.mouse.clicks == [(640, 200, "left")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("action_name", "arguments", "expected_url_attr"),
+    [
+        ("goto_url", {"url": "http://fixture.local/modal"}, "http://fixture.local/modal"),
+        ("go_back", {}, "http://fixture.local/previous"),
+        ("refresh", {}, "http://fixture.local/start"),
+    ],
+)
+async def test_navigation_actions_wait_for_domcontentloaded(
+    action_name: str,
+    arguments: dict[str, Any],
+    expected_url_attr: str,
+) -> None:
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+
+    await _call_execute_action(executor, page, action_name, arguments, viewport)
+
+    assert page.url == expected_url_attr
+    assert any(state == "domcontentloaded" for state, _ in page.wait_states)
+    assert not any(state == "networkidle" for state, _ in page.wait_states)
+
+
+@pytest.mark.asyncio
+async def test_execute_action_type_and_scroll_use_keyboard_and_mouse_inputs() -> None:
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+
+    await _call_execute_action(
+        executor,
+        page,
+        "type",
+        {"text": "release notes", "press_enter_after": True, "clear_before": True},
+        viewport,
+    )
+    await _call_execute_action(
+        executor,
+        page,
+        "scroll",
+        {"coordinates": [500, 500], "direction": "down", "amount": 2},
+        viewport,
+    )
+
+    assert page.keyboard.typed == ["release notes"]
+    assert "Enter" in page.keyboard.pressed
+    assert page.mouse.wheels
+    assert page.mouse.wheels[-1][1] == pytest.approx(160.0, abs=1e-6)
+
+
+@pytest.mark.asyncio
+async def test_execute_action_supports_hover_drag_and_multi_click_variants() -> None:
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+
+    await _call_execute_action(executor, page, "hover", {"coordinates": [250, 500]}, viewport)
+    await _call_execute_action(
+        executor,
+        page,
+        "drag",
+        {"start_coordinates": [100, 100], "coordinates": [700, 600]},
+        viewport,
+    )
+    await _call_execute_action(executor, page, "triple_click", {"coordinates": [500, 250]}, viewport)
+    await _call_execute_action(executor, page, "middle_click", {"coordinates": [500, 250]}, viewport)
+    await _call_execute_action(executor, page, "right_click", {"coordinates": [500, 250]}, viewport)
+    await _call_execute_action(executor, page, "mouse_down", {"coordinates": [500, 250]}, viewport)
+    await _call_execute_action(executor, page, "mouse_up", {"coordinates": [500, 250]}, viewport)
+
+    assert page.mouse.moves[0] == (320, 400)
+    assert page.mouse.down_count == 2
+    assert page.mouse.up_count == 2
+    assert page.mouse.click_counts[-3:] == [3, 1, 1]
+    assert page.mouse.clicks[-2] == (640, 200, "middle")
+    assert page.mouse.clicks[-1] == (640, 200, "right")
+
+
+@pytest.mark.asyncio
+async def test_execute_action_left_click_previews_before_dispatch_and_waits_for_cursor_transition() -> None:
+    module = _import_actions_module()
+    call_order, page, overlay, executor, viewport = _build_overlay_call_order_fixtures(module)
+
+    preview_started = asyncio.Event()
+    release_preview = asyncio.Event()
+
+    async def _preview_action(action_type: str, **kwargs: Any) -> None:
+        call_order.append(("preview_action", action_type, kwargs, "start"))
+        preview_started.set()
+        await release_preview.wait()
+        call_order.append(("preview_action", action_type, kwargs, "end"))
+
+    overlay.preview_action = AsyncMock(side_effect=_preview_action)
+
+    task = asyncio.create_task(
+        _call_execute_action(executor, page, "left_click", {"coordinates": [500, 250]}, viewport)
+    )
+
+    await asyncio.wait_for(preview_started.wait(), timeout=1)
+    assert call_order == [
+        (
+            "preview_action",
+            "left_click",
+            {"x": 640, "y": 200, "num_clicks": 1},
+            "start",
+        )
+    ]
+    assert not page.mouse.clicks
+
+    release_preview.set()
+    trace = await task
+
+    assert trace == "left_click([640, 200])"
+    assert call_order[1] == ("preview_action", "left_click", {"x": 640, "y": 200, "num_clicks": 1}, "end")
+    assert call_order[2] == ("click", 640, 200, "left", 1)
+    assert any(entry[0] == "wait_for_load_state" for entry in call_order)
+    overlay.preview_action.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_execute_action_navigation_shows_status_before_dispatch() -> None:
+    module = _import_actions_module()
+    call_order, page, overlay, executor, viewport = _build_overlay_call_order_fixtures(module)
+
+    async def _set_status(label: str) -> None:
+        call_order.append(("set_status", label))
+
+    overlay.set_status = AsyncMock(side_effect=_set_status)
+
+    trace = await _call_execute_action(
+        executor,
+        page,
+        "goto_url",
+        {"url": "http://fixture.local/modal"},
+        viewport,
+    )
+
+    assert trace == 'goto_url("http://fixture.local/modal")'
+    assert call_order[0] == ("set_status", "Navigating")
+    assert call_order[1][0] == "goto"
+    assert overlay.set_status.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_execute_action_semantic_key_shortcut_uses_single_overlay_footer() -> None:
+    module = _import_actions_module()
+    call_order, page, overlay, executor, viewport = _build_overlay_call_order_fixtures(module)
+
+    status_calls: list[str] = []
+
+    async def _set_status(label: str) -> None:
+        status_calls.append(label)
+        call_order.append(("set_status", label))
+
+    overlay.set_status = AsyncMock(side_effect=_set_status)
+
+    trace = await _call_execute_action(executor, page, "key_press", {"key_comb": "F5"}, viewport)
+
+    assert trace == "key_press(F5)"
+    assert status_calls == ["Refreshing"]
+    assert call_order[0] == ("set_status", "Refreshing")
+    assert page.reload_calls
+
+
+@pytest.mark.asyncio
+async def test_execute_action_hover_previews_before_mouse_move() -> None:
+    module = _import_actions_module()
+    call_order, page, overlay, executor, viewport = _build_overlay_call_order_fixtures(module)
+
+    async def _move(x: int, y: int, *, steps: int | None = None) -> None:
+        call_order.append(("move", x, y))
+
+    page.mouse.move = AsyncMock(side_effect=_move)
+
+    async def _preview_action(action_type: str, **kwargs: Any) -> None:
+        call_order.append(("preview_action", action_type, kwargs))
+
+    overlay.preview_action = AsyncMock(side_effect=_preview_action)
+
+    trace = await _call_execute_action(executor, page, "hover", {"coordinates": [250, 500]}, viewport)
+
+    assert trace == "hover([320, 400])"
+    assert call_order[0] == ("preview_action", "hover", {"x": 320, "y": 400})
+    assert call_order[1] == ("move", 320, 400)
+    overlay.preview_action.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("action_name", "press_or_release"), [("mouse_down", "down"), ("mouse_up", "up")])
+async def test_execute_action_mouse_down_and_up_preview_then_press_release(
+    action_name: str, press_or_release: str
+) -> None:
+    """Characterizes the pre-refactor mouse_down/mouse_up branches: like ``hover``, both
+    resolve coordinates and preview through ``_hover_at_resolved_coordinates`` (preview_action
+    with their own canonical action_type, then mouse.move) before pressing or releasing the
+    button. Pins the exact call order so the branch-merging refactor can be checked against it.
+    """
+    module = _import_actions_module()
+    call_order, page, overlay, executor, viewport = _build_move_down_up_overlay_fixtures(module)
+    await _call_execute_action(executor, page, action_name, {"coordinates": [250, 500]}, viewport)
+
+    assert call_order[:3] == [
+        ("preview_action", action_name, {"x": 320, "y": 400}),
+        ("move", 320, 400),
+        (press_or_release,),
+    ]
+    overlay.preview_action.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_execute_action_key_press_shows_copy_paste_glyph_only_for_bare_chords() -> None:
+    module = _import_actions_module()
+
+    async def _preview_types(key_comb: str) -> list[str]:
+        call_order, page, overlay, executor, viewport = _build_overlay_call_order_fixtures(module)
+
+        async def _preview_action(action_type: str, **kwargs: Any) -> None:
+            call_order.append(("preview_action", action_type))
+
+        overlay.preview_action = AsyncMock(side_effect=_preview_action)
+        await _call_execute_action(executor, page, "key_press", {"key_comb": key_comb}, viewport)
+        return [entry[1] for entry in call_order if entry[0] == "preview_action"]
+
+    # A bare Ctrl/Cmd+C or +V shows the clipboard glyph.
+    assert await _preview_types("Control+C") == ["copy"]
+    assert await _preview_types("Meta+V") == ["paste"]
+    assert await _preview_types("ControlOrMeta+C") == ["copy"]
+    # A shifted chord is a different shortcut (e.g. Ctrl+Shift+C = devtools) and
+    # must not be mislabeled as copy/paste.
+    assert await _preview_types("Control+Shift+C") == []
+    assert await _preview_types("Control+Shift+V") == []
+
+
+@pytest.mark.asyncio
+async def test_execute_action_mouse_move_and_ref_resolution_use_sdk_tool_helpers() -> None:
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+    page.evaluate_results = [{"success": True, "coordinates": [301, 199]}]
+
+    trace = await _call_execute_action(executor, page, "mouse_move", {"ref": "hero-button"}, viewport)
+
+    assert trace == "mouse_move(ref='hero-button')"
+    assert page.mouse.moves[-1] == (301, 199)
+    assert page.evaluate_calls[0][1] == ()
+
+
+@pytest.mark.asyncio
+async def test_execute_action_click_modifier_holds_and_releases_keys() -> None:
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+
+    trace = await _call_execute_action(
+        executor,
+        page,
+        "left_click",
+        {"coordinates": [500, 250], "modifier": "ctrl"},
+        viewport,
+    )
+
+    assert trace == "left_click([640, 200], modifier=Control)"
+    assert page.keyboard.downs == ["Control"]
+    assert page.keyboard.ups == ["Control"]
+    assert page.mouse.clicks == [(640, 200, "left")]
+
+
+@pytest.mark.asyncio
+async def test_execute_action_drag_previews_before_drag_motion() -> None:
+    module = _import_actions_module()
+    call_order, page, overlay, executor, viewport = _build_move_down_up_overlay_fixtures(module)
+    trace = await _call_execute_action(
+        executor,
+        page,
+        "drag",
+        {"start_coordinates": [100, 100], "coordinates": [700, 600]},
+        viewport,
+    )
+
+    assert trace == "drag([128, 80], [896, 480])"
+    assert call_order[0] == ("preview_action", "drag", {"x": 896, "y": 480, "start_x": 128, "start_y": 80})
+    assert call_order[1][0] == "move"
+    assert call_order[2][0] == "down"
+    assert call_order[3][0] == "move"
+    assert call_order[4][0] == "up"
+    overlay.preview_action.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_execute_action_key_press_supports_shortcuts_and_semantic_navigation() -> None:
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+
+    await _call_execute_action(executor, page, "key_press", {"key": "ctrl+a"}, viewport)
+    await _call_execute_action(executor, page, "key_press", {"key_comb": "F5"}, viewport)
+    await _call_execute_action(executor, page, "key_press", {"key_comb": "Alt+ArrowRight"}, viewport)
+    await _call_execute_action(executor, page, "wait", {"duration": 0}, viewport)
+
+    assert "Control+a" in page.keyboard.pressed
+    assert page.reload_calls
+    assert page.go_forward_calls
+
+
+@pytest.mark.asyncio
+async def test_execute_action_key_press_supports_repeated_key_sequences() -> None:
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+
+    trace = await _call_execute_action(executor, page, "key_press", {"key": "down down enter"}, viewport)
+
+    assert trace == "key_press_sequence(ArrowDown, ArrowDown, Enter)"
+    assert page.keyboard.pressed == ["ArrowDown", "ArrowDown", "Enter"]
+
+
+@pytest.mark.asyncio
+async def test_execute_action_key_press_ignores_zoom_shortcuts() -> None:
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+
+    trace = await _call_execute_action(executor, page, "key_press", {"key": "ctrl+minus"}, viewport)
+
+    assert trace == "key_press(Control+-)"
+    assert page.keyboard.pressed == []
+
+
+@pytest.mark.asyncio
+async def test_execute_action_hold_key_supports_duration_and_fallback_press(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+
+    monkeypatch.setattr(module.asyncio, "sleep", noop_sleep)
+
+    duration_trace = await _call_execute_action(executor, page, "hold_key", {"key": "shift", "duration": 0.5}, viewport)
+    press_trace = await _call_execute_action(executor, page, "hold_key", {"key": "enter"}, viewport)
+
+    assert duration_trace == "hold_key(Shift, duration=0.5)"
+    assert press_trace == "hold_key(Enter)"
+    assert page.keyboard.downs == ["Shift"]
+    assert page.keyboard.ups == ["Shift"]
+    assert page.keyboard.pressed == ["Enter"]
+
+
+@pytest.mark.asyncio
+async def test_execute_action_screenshot_is_a_no_op_for_n1_default_tool_calls() -> None:
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+
+    trace = await _call_execute_action(executor, page, "screenshot", {}, viewport)
+
+    assert trace == "screenshot()"
+    assert not page.mouse.clicks
+    assert not page.keyboard.pressed
+
+
+@pytest.mark.asyncio
+async def test_execute_action_rejects_invalid_scroll_direction() -> None:
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+
+    with pytest.raises(module.BrowserActionError, match="unsupported scroll direction"):
+        await _call_execute_action(
+            executor,
+            page,
+            "scroll",
+            {"coordinates": [500, 500], "direction": "diagonal", "amount": 1},
+            viewport,
+        )
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_call_runs_find_without_counting_as_interaction(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+
+    async def _fake_evaluate_tool_script(page_arg: Any, script: str, text: str) -> dict[str, Any]:
+        assert page_arg is page
+        assert script == module.FIND_SCRIPT
+        assert text == "ATMOS"
+        return {
+            "success": True,
+            "matches": ["ATMOS icon"],
+            "totalMatches": 1,
+        }
+
+    monkeypatch.setattr(module, "evaluate_tool_script", _fake_evaluate_tool_script)
+
+    result = await _call_execute_tool_call(executor, page, "find", {"text": "ATMOS"}, viewport)
+
+    assert result.trace == "find(text='ATMOS')"
+    assert result.output_text == 'Found 1 element(s) matching "ATMOS":\nATMOS icon'
+    assert result.counts_as_interaction is False
+
+
+@pytest.mark.asyncio
+async def test_execute_action_click_modifier_released_on_failure() -> None:
+    """Modifier keys must be released even when the click raises."""
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+
+    async def _failing_click(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("click exploded")
+
+    page.mouse.click = _failing_click
+
+    with pytest.raises(module.BrowserActionError, match="click exploded"):
+        await _call_execute_action(
+            executor,
+            page,
+            "left_click",
+            {"coordinates": [500, 250], "modifier": "ctrl"},
+            viewport,
+        )
+
+    # Modifier must still be released despite the error.
+    assert page.keyboard.downs == ["Control"]
+    assert page.keyboard.ups == ["Control"]
+
+
+@pytest.mark.asyncio
+async def test_resolve_coordinates_falls_back_to_raw_when_ref_fails() -> None:
+    """When ref resolution fails, fall back to the raw coordinates arg."""
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+    # Queue a failed evaluate result for ref resolution
+    page.evaluate_results.append({"success": False, "message": "element not found"})
+
+    trace = await _call_execute_action(
+        executor,
+        page,
+        "left_click",
+        {"coordinates": [500, 250], "ref": "missing-ref"},
+        viewport,
+    )
+
+    # Should fall back to denormalized coordinates
+    assert page.mouse.clicks == [(640, 200, "left")]
+    assert "left_click" in trace
+
+
+@pytest.mark.asyncio
+async def test_resolve_coordinates_raises_when_ref_fails_and_no_coords() -> None:
+    """When ref fails and there are no fallback coordinates, raise BrowserActionError."""
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+    page.evaluate_results.append({"success": False, "message": "element not found"})
+
+    with pytest.raises(module.BrowserActionError, match="element not found"):
+        await _call_execute_action(
+            executor,
+            page,
+            "left_click",
+            {"ref": "missing-ref"},  # no coordinates fallback
+            viewport,
+        )
+
+
+@pytest.mark.asyncio
+async def test_focused_element_is_password_true() -> None:
+    module = _import_actions_module()
+    page = FakePage()
+    page.evaluate_results.append(True)
+
+    assert await module.focused_element_is_password(page) is True
+
+
+@pytest.mark.asyncio
+async def test_focused_element_is_password_false() -> None:
+    module = _import_actions_module()
+    page = FakePage()
+    page.evaluate_results.append(False)
+
+    assert await module.focused_element_is_password(page) is False
+
+
+@pytest.mark.asyncio
+async def test_focused_element_is_password_none_on_evaluate_failure() -> None:
+    module = _import_actions_module()
+    page = FakePage()  # no result queued -> FakePage.evaluate raises, caught as a failure
+
+    assert await module.focused_element_is_password(page) is None
+
+
+@pytest.mark.asyncio
+async def test_referenced_element_is_password_true() -> None:
+    module = _import_actions_module()
+    page = FakePage()
+    page.evaluate_results.append(True)
+
+    assert await module.referenced_element_is_password(page, "some-ref") is True
+    assert page.evaluate_calls[-1][1] == ("some-ref",)
+
+
+@pytest.mark.asyncio
+async def test_referenced_element_is_password_false() -> None:
+    module = _import_actions_module()
+    page = FakePage()
+    page.evaluate_results.append(False)
+
+    assert await module.referenced_element_is_password(page, "some-ref") is False
+    assert page.evaluate_calls[-1][1] == ("some-ref",)
+
+
+@pytest.mark.asyncio
+async def test_referenced_element_is_password_none_on_evaluate_failure() -> None:
+    module = _import_actions_module()
+    page = FakePage()  # no result queued -> FakePage.evaluate raises, caught as a failure
+
+    assert await module.referenced_element_is_password(page, "some-ref") is None
+    # The ref must still have been forwarded to page.evaluate on the failing call.
+    assert page.evaluate_calls[-1][1] == ("some-ref",)
+
+
+@pytest.mark.asyncio
+async def test_execute_action_type_masks_text_when_focused_element_is_password() -> None:
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+    page.evaluate_results.append(True)  # focused element is a password input
+
+    trace = await _call_execute_action(executor, page, "type", {"text": "hunter2"}, viewport)
+
+    assert page.keyboard.typed == ["hunter2"]
+    assert "hunter2" not in trace
+    assert module.REDACTED_TYPE_TEXT in trace
+
+
+@pytest.mark.asyncio
+async def test_execute_action_type_keeps_text_for_non_password_fields() -> None:
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+    page.evaluate_results.append(False)  # focused element is not a password input
+
+    trace = await _call_execute_action(executor, page, "type", {"text": "hello world"}, viewport)
+
+    assert page.keyboard.typed == ["hello world"]
+    assert "hello world" in trace
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_call_set_element_value_masks_password_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+
+    async def _is_password(page_arg: Any, ref: str) -> bool:
+        assert page_arg is page
+        assert ref == "password-input"
+        return True
+
+    async def _fake_evaluate_tool_script(page_arg: Any, script: str, ref: str, value: str) -> dict[str, Any]:
+        assert page_arg is page
+        assert script == module.SET_ELEMENT_VALUE_SCRIPT
+        assert ref == "password-input"
+        assert value == "hunter2"
+        return {"success": True, "message": 'Set password value to "hunter2"'}
+
+    monkeypatch.setattr(module, "referenced_element_is_password", _is_password)
+    monkeypatch.setattr(module, "evaluate_tool_script", _fake_evaluate_tool_script)
+
+    result = await _call_execute_tool_call(
+        executor,
+        page,
+        "set_element_value",
+        {"ref": "password-input", "value": "hunter2"},
+        viewport,
+    )
+
+    assert "hunter2" not in result.trace
+    assert "hunter2" not in result.output_text
+    assert module.REDACTED_TYPE_TEXT in result.trace
+    assert module.REDACTED_TYPE_TEXT in result.output_text
+
+
+@pytest.mark.asyncio
+async def test_execute_action_wait_caps_model_requested_duration(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _import_actions_module()
+    executor, page, viewport = _build_default_action_fixtures(module)
+    sleeps: list[float] = []
+    real_sleep = asyncio.sleep
+
+    async def _recording_sleep(delay: float, *args: Any, **kwargs: Any) -> None:
+        sleeps.append(delay)
+        await real_sleep(0)
+
+    monkeypatch.setattr(module.asyncio, "sleep", _recording_sleep)
+
+    await _call_execute_action(executor, page, "wait", {"duration": 9_999}, viewport)
+
+    assert module.MAX_WAIT_ACTION_SECONDS in sleeps
+    assert all(delay <= module.MAX_WAIT_ACTION_SECONDS for delay in sleeps)
+
+
+@pytest.mark.asyncio
+async def test_execute_action_type_masks_text_when_password_detection_fails() -> None:
+    """Detection failures fail closed: with no evaluate result queued, FakePage
+    raises, the helper returns None, and the trace must still be masked."""
+    module = _import_actions_module()
+    # No evaluate result queued on the fresh FakePage -> detection error.
+    executor, page, viewport = _build_default_action_fixtures(module)
+
+    trace = await _call_execute_action(executor, page, "type", {"text": "maybe-secret"}, viewport)
+
+    assert page.keyboard.typed == ["maybe-secret"]
+    assert "maybe-secret" not in trace
+    assert module.REDACTED_TYPE_TEXT in trace

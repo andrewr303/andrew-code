@@ -1,0 +1,9 @@
+{
+  "name": "whoami",
+  "description": "Show the current authenticated user, active CLI profile, email, and API URL.",
+  "inputSchema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {}
+  }
+}

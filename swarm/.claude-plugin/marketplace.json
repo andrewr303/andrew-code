@@ -1,0 +1,43 @@
+{
+  "name": "fusion-hive",
+  "id": "fusion-hive",
+  "owner": {
+    "name": "Andrew",
+    "url": "https://github.com/nyldn"
+  },
+  "metadata": {
+    "description": "Fusion nested multi-agent coding swarm (Hive Board + AndrewCode children) plus multi-model council, with MetaLoop (Fable 5 CEO + GPT Chief Operator + tiered expert/fast swarm).",
+    "version": "3.0.0+hive"
+  },
+  "plugins": [
+    {
+      "name": "fusion",
+      "source": "./",
+      "version": "3.0.0+hive",
+      "category": "orchestration",
+      "description": "Nested multi-agent coding swarm + multi-model council. Architect (Fable 5.1 / Astra) designs a custom hive; captains are any live CLI; nested workers are real AndrewCode processes on one Hive Board. Also MetaLoop: Fable 5 as CEO + GPT Chief Operator + expert (Grok, OpenCode/GLM) and fast labor tiers, typed contracts, risk-aware routing, and deterministic gates.",
+      "author": {
+        "name": "Andrew",
+        "url": "https://github.com/nyldn"
+      },
+      "keywords": [
+        "multi-llm",
+        "multi-model",
+        "fusion",
+        "council",
+        "swarm",
+        "orchestration",
+        "metaloop",
+        "board-advisor",
+        "fable",
+        "antigravity",
+        "tiered-swarm",
+        "hive",
+        "andrewcode",
+        "nested-swarm",
+        "astra",
+        "board"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "name": "list_deploys",
+  "description": "List all deploys for a project. Use this tool when you need to search for a deploy or list all deploys for a project.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "projectRef": {
+        "type": "string",
+        "description": "The trigger.dev project ref, starts with proj_. We will attempt to automatically detect the project ref if running inside a directory that includes a trigger.config.ts file, or if you pass the --project-ref option to the MCP server."
+      },
+      "configPath": {
+        "type": "string",
+        "description": "The path to the trigger.config.ts file. Only used when the trigger.config.ts file is not at the root dir (like in a monorepo setup). If not provided, we will try to find the config file in the current working directory"
+      },
+      "branch": {
+        "type": "string",
+        "description": "The branch to get tasks for, only used for preview environments"
+      },
+      "environment": {
+        "type": "string",
+        "enum": [
+          "staging",
+          "prod",
+          "preview"
+        ],
+        "description": "The environment to trigger the task in",
+        "default": "prod"
+      },
+      "from": {
+        "type": "string",
+        "description": "The date to start the search from, in ISO 8601 format"
+      },
+      "to": {
+        "type": "string",
+        "description": "The date to end the search, in ISO 8601 format"
+      },
+      "period": {
+        "type": "string",
+        "description": "The period to search within (e.g. 1d, 7d, 3h, etc.)"
+      },
+      "status": {
+        "type": "string",
+        "enum": [
+          "PENDING",
+          "BUILDING",
+          "DEPLOYING",
+          "DEPLOYED",
+          "FAILED",
+          "CANCELED",
+          "TIMED_OUT"
+        ],
+        "description": "Filter deployments that are in this status"
+      },
+      "cursor": {
+        "type": "string",
+        "description": "The deployment ID to start the search from, to get the next page"
+      },
+      "limit": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 100,
+        "description": "The number of deployments to return, defaults to 20 (max 100)"
+      }
+    },
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

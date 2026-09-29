@@ -1,0 +1,30 @@
+{
+  "name": "servicebus",
+  "description": "Service Bus operations - Commands to manage Azure Service Bus queues, topics, and subscriptions for reliable asynchronous messaging and enterprise integration. Supports point-to-point and publish-subscribe patterns, dead-letter handling, and decoupled architectures. Not intended for real-time communication, direct API calls, or database operations. Uses a hierarchical MCP command model with command, parameters, and learn=true.This tool is a hierarchical MCP command router.\r\nSub commands are routed to MCP servers that require specific fields inside the \"parameters\" object.\r\nTo invoke a command, set \"command\" and wrap its args in \"parameters\".\r\nSet \"learn=true\" to discover available sub commands.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "intent": {
+        "type": "string",
+        "description": "The intent of the azure operation to perform."
+      },
+      "command": {
+        "type": "string",
+        "description": "The command to execute against the specified tool."
+      },
+      "parameters": {
+        "type": "object",
+        "description": "The parameters to pass to the tool command."
+      },
+      "learn": {
+        "type": "boolean",
+        "description": "To learn about the tool and its supported child tools and parameters.",
+        "default": false
+      }
+    },
+    "required": [
+      "intent"
+    ],
+    "additionalProperties": false
+  }
+}

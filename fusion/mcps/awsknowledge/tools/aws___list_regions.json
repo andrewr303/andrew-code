@@ -1,0 +1,9 @@
+{
+  "name": "aws___list_regions",
+  "description": "Retrieve a list of all AWS regions.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": []
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "name": "trigger_task",
+  "description": "Trigger a task in the project. Use the get_tasks tool to get a list of tasks and ask the user to select one if it's not clear which one to use. Use the wait_for_run_to_complete tool to wait for the run to complete.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "projectRef": {
+        "type": "string",
+        "description": "The trigger.dev project ref, starts with proj_. We will attempt to automatically detect the project ref if running inside a directory that includes a trigger.config.ts file, or if you pass the --project-ref option to the MCP server."
+      },
+      "configPath": {
+        "type": "string",
+        "description": "The path to the trigger.config.ts file. Only used when the trigger.config.ts file is not at the root dir (like in a monorepo setup). If not provided, we will try to find the config file in the current working directory"
+      },
+      "environment": {
+        "type": "string",
+        "enum": [
+          "dev",
+          "staging",
+          "prod",
+          "preview"
+        ],
+        "description": "The environment to get tasks for",
+        "default": "dev"
+      },
+      "branch": {
+        "type": "string",
+        "description": "The branch to get tasks for, only used for preview environments"
+      },
+      "taskId": {
+        "type": "string",
+        "description": "The ID/slug of the task to trigger. Use the get_tasks tool to get a list of tasks and ask the user to select one if it's not clear which one to use."
+      },
+      "payload": {
+        "description": "The payload to trigger the task with. Should match the task's payload schema. Not a JSON string, but the actual payload object"
+      },
+      "options": {
+        "type": "object",
+        "properties": {
+          "queue": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "The name of the queue to trigger the task in, by default will use the queue configured in the task"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "delay": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string",
+                "format": "date-time"
+              }
+            ],
+            "description": "The delay before the task run is executed"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "The idempotency key to use for the task run"
+          },
+          "machine": {
+            "type": "string",
+            "enum": [
+              "micro",
+              "small-1x",
+              "small-2x",
+              "medium-1x",
+              "medium-2x",
+              "large-1x",
+              "large-2x"
+            ],
+            "description": "The machine preset to use for the task run"
+          },
+          "maxAttempts": {
+            "type": "integer",
+            "description": "The maximum number of attempts to retry the task run"
+          },
+          "maxDuration": {
+            "type": "number",
+            "description": "The maximum duration in seconds of the task run"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags to add to the task run. Must be less than 128 characters and cannot have more than 5"
+          },
+          "ttl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": 0
+              }
+            ],
+            "description": "The time to live of the task run. If the run doesn't start executing within this time, it will be automatically cancelled.",
+            "default": "10m"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "taskId"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

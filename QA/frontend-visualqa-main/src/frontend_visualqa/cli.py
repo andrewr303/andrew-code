@@ -1,0 +1,633 @@
+"""Unified CLI entrypoint for frontend-visualqa."""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import logging
+import os
+import sys
+import threading
+from collections.abc import AsyncIterator, Callable, Coroutine
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, TypeVar
+
+from pydantic import ValidationError
+
+from frontend_visualqa import __version__
+from frontend_visualqa.browser import BrowserManager
+from frontend_visualqa.claim_parser import ParsedClaimsFile, parse_claims_file
+from frontend_visualqa.errors import ConfigurationError
+from frontend_visualqa.mcp_server import close_runners_sync, configure_server, get_mcp_server, run_stdio_server
+from frontend_visualqa.reporters import REPORTER_NAMES
+from frontend_visualqa.serialization import serialize_result
+from frontend_visualqa.schemas import (
+    BrowserConfig,
+    BrowserMode,
+    VerifyVisualClaimsInput,
+    ViewportConfig,
+    _pydantic_field_default,
+    validate_url,
+)
+from frontend_visualqa.text_utils import clip_text
+
+if TYPE_CHECKING:
+    from frontend_visualqa.runner import VisualQARunner
+    from frontend_visualqa.schemas import ClaimResult
+
+logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the single-entrypoint CLI parser."""
+
+    parser = argparse.ArgumentParser(
+        prog="frontend-visualqa",
+        description="Gives coding agents eyes for frontend work — visual QA and verification powered by Yutori Navigator.",
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    serve_parser = subparsers.add_parser("serve", help="Start the FastMCP stdio server.")
+    _add_browser_args(serve_parser)
+    serve_parser.set_defaults(handler=_handle_serve)
+
+    verify_parser = subparsers.add_parser("verify", help="Verify one or more visual claims against a URL.")
+    verify_parser.add_argument("url", help="Target page URL, usually a localhost route.")
+    claims_group = verify_parser.add_mutually_exclusive_group(required=True)
+    claims_group.add_argument(
+        "--claims",
+        nargs="+",
+        help="One or more explicit visual claims to verify.",
+    )
+    claims_group.add_argument(
+        "--claims-file",
+        help="Markdown file containing root-level bullet claims to verify.",
+    )
+    _add_viewport_args(verify_parser)
+    _add_browser_args(verify_parser)
+    _add_session_args(verify_parser, run_name_help="Optional label included in JSON output and reports.")
+    verify_parser.add_argument(
+        "--reset-between-claims",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Return to the base URL between claims.",
+    )
+    verify_parser.add_argument(
+        "--max-steps-per-claim",
+        type=int,
+        default=_pydantic_field_default(VerifyVisualClaimsInput, "max_steps_per_claim"),
+        help="Maximum browser actions the runner may take for each claim.",
+    )
+    verify_parser.add_argument(
+        "--claim-timeout-seconds",
+        type=float,
+        default=_pydantic_field_default(VerifyVisualClaimsInput, "claim_timeout_seconds"),
+        help="Maximum wall-clock time for an individual claim before it is marked inconclusive.",
+    )
+    verify_parser.add_argument(
+        "--run-timeout-seconds",
+        type=float,
+        default=_pydantic_field_default(VerifyVisualClaimsInput, "run_timeout_seconds"),
+        help="Maximum wall-clock time for the whole run before remaining claims are marked inconclusive.",
+    )
+    verify_parser.add_argument(
+        "--navigation-hint",
+        help="Optional interaction guidance when the page must be manipulated before judging a claim.",
+    )
+    verify_parser.add_argument(
+        "--reporter",
+        action="append",
+        choices=REPORTER_NAMES,
+        default=None,
+        help="Output reporter. Can be specified multiple times. Defaults to native.",
+    )
+    verify_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help=(
+            "Stream service-responsiveness logs to stderr. "
+            "-v: INFO (Navigator token usage, retries, image trimming, page ready). "
+            "-vv: DEBUG (per-action timing, screenshot fallbacks, low-level SDK chatter)."
+        ),
+    )
+    verify_parser.add_argument(
+        "--video",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Record a Playwright video of the browser session. Saved as "
+            ".webm files under <run-artifacts>/videos/. One video per "
+            "Playwright page; finalized when the context closes."
+        ),
+    )
+    verify_parser.set_defaults(handler=_handle_verify)
+
+    screenshot_parser = subparsers.add_parser("screenshot", help="Capture a screenshot for a target URL.")
+    screenshot_parser.add_argument("url", help="Target page URL, usually a localhost route.")
+    _add_viewport_args(screenshot_parser)
+    _add_browser_args(screenshot_parser)
+    _add_session_args(screenshot_parser, run_name_help="Optional label included in JSON output.")
+    screenshot_parser.set_defaults(handler=_handle_screenshot)
+
+    login_parser = subparsers.add_parser(
+        "login",
+        help="Open a headed persistent browser profile so you can log in once and reuse the session later.",
+    )
+    login_parser.add_argument("url", help="Login page URL, usually a localhost route.")
+    login_parser.add_argument(
+        "--user-data-dir",
+        help="Persistent Playwright profile directory. Defaults to the shared frontend-visualqa cache path.",
+    )
+    login_parser.set_defaults(handler=_handle_login)
+
+    status_parser = subparsers.add_parser("status", help="Show browser status for the current process as JSON.")
+    status_parser.set_defaults(handler=_handle_status)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the CLI."""
+
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        return args.handler(args)
+    except KeyboardInterrupt:
+        return 130
+
+
+def _add_session_args(parser: argparse.ArgumentParser, *, run_name_help: str) -> None:
+    parser.add_argument(
+        "--session-key",
+        default="default",
+        help="Shared browser session key. Persistent mode supports one named session at a time.",
+    )
+    parser.add_argument("--run-name", help=run_name_help)
+    parser.add_argument(
+        "--reuse-session",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Reuse the named browser session if it already exists.",
+    )
+
+
+def _add_viewport_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=_pydantic_field_default(ViewportConfig, "width"),
+        help="Viewport width in CSS pixels.",
+    )
+    parser.add_argument(
+        "--height",
+        type=int,
+        default=_pydantic_field_default(ViewportConfig, "height"),
+        help="Viewport height in CSS pixels.",
+    )
+    parser.add_argument(
+        "--device-scale-factor",
+        type=float,
+        default=_pydantic_field_default(ViewportConfig, "device_scale_factor"),
+        help="Device scale factor. Keep this at 1 unless you explicitly need another DPR.",
+    )
+
+
+def _add_browser_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--browser-mode",
+        choices=[mode.value for mode in BrowserMode],
+        default=BrowserMode.ephemeral.value,
+        help="Browser launch strategy. Use persistent to keep cookies and local storage across runs; persistent mode supports one named session at a time.",
+    )
+    parser.add_argument(
+        "--user-data-dir",
+        help="Persistent Playwright profile directory. Ignored in ephemeral mode.",
+    )
+    parser.add_argument(
+        "--headed",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Run the browser visibly instead of headless.",
+    )
+    parser.add_argument(
+        "--visualize",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Show in-browser action visualization. Defaults to on when --headed is set.",
+    )
+
+
+def _build_viewport(args: argparse.Namespace) -> ViewportConfig:
+    return ViewportConfig(
+        width=args.width,
+        height=args.height,
+        device_scale_factor=args.device_scale_factor,
+    )
+
+
+def _build_browser_config(
+    args: argparse.Namespace,
+    *,
+    force_mode: BrowserMode | None = None,
+    force_headed: bool | None = None,
+) -> BrowserConfig:
+    mode = force_mode or BrowserMode(getattr(args, "browser_mode", BrowserMode.ephemeral.value))
+    headed = force_headed if force_headed is not None else getattr(args, "headed", False)
+    explicit_visualize = getattr(args, "visualize", None)
+    visualize = explicit_visualize if explicit_visualize is not None else headed
+    return BrowserConfig(
+        mode=mode,
+        user_data_dir=getattr(args, "user_data_dir", None),
+        headless=not headed,
+        visualize=visualize,
+        record_video=bool(getattr(args, "video", False)),
+    )
+
+
+class _DropDestroyedContextWarning(logging.Filter):
+    """Suppress yutori PageReadyChecker's "Execution context was destroyed"
+    warning.
+
+    The warning fires when ``page.evaluate(...)`` runs against a Playwright
+    context that just got torn down by a navigation. ``is_ready`` catches
+    the exception, returns ``False``, and the polling loop retries on the
+    next tick — which succeeds because the new context is up. By the time
+    a user sees the log line, the situation has already self-recovered.
+    Pure noise; we drop only this specific message and leave any other
+    page-ready warnings intact.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "Execution context was destroyed" not in record.getMessage()
+
+
+def _install_page_ready_noise_filter() -> None:
+    """Attach the destroyed-context filter to the yutori page_ready logger.
+
+    Called from both serve and verify logging setup so the noise is
+    suppressed regardless of how the process was launched.
+    """
+    logging.getLogger("yutori.navigator.page_ready").addFilter(
+        _DropDestroyedContextWarning()
+    )
+
+
+def _configure_serve_logging() -> None:
+    # Stdio transport depends on a clean stdout channel for MCP messages.
+    logging.basicConfig(level=logging.WARNING, stream=sys.stderr, force=True)
+    logging.getLogger("frontend_visualqa").setLevel(logging.WARNING)
+    logging.getLogger("mcp").setLevel(logging.ERROR)
+    _install_page_ready_noise_filter()
+
+
+def _configure_verify_logging(verbose: int) -> None:
+    """Wire stderr logging for the verify subcommand based on -v / -vv.
+
+    The verify subcommand emits its result JSON on stdout, so logs MUST go to
+    stderr (otherwise downstream tools that pipe verify into jq see garbage).
+    Default (verbose==0) stays at WARNING — same noise level as before.
+    -v (INFO) surfaces the existing instrumentation: Navigator token usage,
+    retries with backoff, image trimming events, page-ready check timing.
+    -vv (DEBUG) adds low-level chatter from frontend_visualqa, the yutori
+    SDK, and the MCP transport. We intentionally leave Playwright at INFO
+    even on -vv because its DEBUG output is overwhelming and rarely useful.
+    """
+    if verbose >= 2:
+        level = logging.DEBUG
+    elif verbose == 1:
+        level = logging.INFO
+    else:
+        level = logging.WARNING
+    logging.basicConfig(
+        level=level,
+        stream=sys.stderr,
+        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+        force=True,
+    )
+    logging.getLogger("frontend_visualqa").setLevel(level)
+    logging.getLogger("yutori").setLevel(level)
+    # Playwright DEBUG is firehose-y and almost never useful for service
+    # responsiveness. Keep it at INFO regardless.
+    logging.getLogger("playwright").setLevel(max(level, logging.INFO))
+    _install_page_ready_noise_filter()
+
+
+def _emit_json(payload: dict[str, Any]) -> None:
+    json.dump(payload, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+
+
+def _handle_serve(args: argparse.Namespace) -> int:
+    _configure_serve_logging()
+    configure_server(_build_browser_config(args))
+    run_stdio_server(get_mcp_server, close_runners_sync)
+    return 0
+
+
+def _fail(message: str) -> int:
+    """Print *message* to stderr and return the CLI's standard failure exit code."""
+    print(message, file=sys.stderr)
+    return 1
+
+
+def _run_cli_async(coro: Coroutine[Any, Any, dict[str, Any]]) -> dict[str, Any] | int:
+    """Run *coro* to completion, converting a ``ConfigurationError`` into a failure exit code.
+
+    Returns the coroutine's result dict on success, or an ``int`` exit code (from
+    :func:`_fail`) if a ``ConfigurationError`` was raised. Callers should check
+    ``isinstance(outcome, int)`` before treating the outcome as a result dict.
+    """
+    try:
+        return asyncio.run(coro)
+    except ConfigurationError as exc:
+        return _fail(str(exc))
+
+
+def _handle_verify(args: argparse.Namespace) -> int:
+    _configure_verify_logging(getattr(args, "verbose", 0))
+    outcome = _run_cli_async(_run_verify(args))
+    if isinstance(outcome, int):
+        return outcome
+    _emit_json(outcome)
+    exit_code = _verify_exit_code(outcome)
+    _print_run_summary(outcome, all_passed=exit_code == 0)
+    return exit_code
+
+
+def _handle_screenshot(args: argparse.Namespace) -> int:
+    outcome = _run_cli_async(_run_screenshot(args))
+    if isinstance(outcome, int):
+        return outcome
+    _emit_json(outcome)
+    return 0 if outcome.get("status") == "completed" else 1
+
+
+def _handle_login(args: argparse.Namespace) -> int:
+    if not sys.stdin.isatty():
+        return _fail("login requires an interactive terminal (stdin must be a TTY).")
+    try:
+        validate_url(args.url)
+    except ValueError as exc:
+        return _fail(str(exc))
+    return asyncio.run(_run_login(args))
+
+
+def _handle_status(_: argparse.Namespace) -> int:
+    result = asyncio.run(_run_status())
+    _emit_json(result)
+    return 0
+
+
+async def _run_verify(args: argparse.Namespace) -> dict[str, Any]:
+    claims_file: ParsedClaimsFile | None = None
+    claim_navigation_hints: list[str | None] | None = None
+    if args.claims_file:
+        claims_file = parse_claims_file(Path(args.claims_file))
+        claims = claims_file.claims
+        claim_navigation_hints = [line.navigation_hint for line in claims_file.lines]
+    else:
+        claims = list(args.claims)
+
+    # Validate the request before the auth preflight so bad CLI input fails
+    # fast with a clean message instead of hitting auth/network first.
+    request = _validate_or_raise(
+        "verify",
+        lambda: VerifyVisualClaimsInput(
+            url=args.url,
+            claims=claims,
+            claim_navigation_hints=claim_navigation_hints,
+            viewport=_validated_viewport(args, "verify"),
+            session_key=args.session_key,
+            run_name=args.run_name,
+            reuse_session=args.reuse_session,
+            reset_between_claims=args.reset_between_claims,
+            max_steps_per_claim=args.max_steps_per_claim,
+            claim_timeout_seconds=args.claim_timeout_seconds,
+            run_timeout_seconds=args.run_timeout_seconds,
+            navigation_hint=args.navigation_hint,
+        ),
+    )
+
+    await _preflight_verify_auth()
+
+    async with _runner_scope(
+        browser_config=_build_browser_config(args),
+        reporters=args.reporter,
+    ) as runner:
+        total_claims = len(claims)
+
+        def _progress_start(index: int, claim: str) -> None:
+            print(f"[{index}/{total_claims}] Verifying: {_truncate_for_progress(claim)}", file=sys.stderr, flush=True)
+
+        def _progress_complete(index: int, claim: str, result: ClaimResult) -> None:
+            del claim
+            message = f"[{index}/{total_claims}] {result.status}"
+            if result.status != "passed" and result.finding:
+                message += f" - {_truncate_for_progress(result.finding)}"
+            print(message, file=sys.stderr, flush=True)
+
+        result = await runner.run_request(
+            request,
+            claims_file=claims_file,
+            on_claim_start=_progress_start,
+            on_claim_complete=_progress_complete,
+        )
+        return serialize_result(result)
+
+
+def _format_validation_error(command: str, exc: ValidationError) -> str:
+    issues = "; ".join(
+        f"{'.'.join(str(part) for part in error['loc']) or 'input'}: {error['msg']}" for error in exc.errors()
+    )
+    return f"Invalid {command} options — {issues}"
+
+
+def _validate_or_raise(command: str, factory: Callable[[], T]) -> T:
+    """Call factory(), converting any pydantic ValidationError into a clean ConfigurationError."""
+    try:
+        return factory()
+    except ValidationError as exc:
+        raise ConfigurationError(_format_validation_error(command, exc)) from exc
+
+
+def _validated_viewport(args: argparse.Namespace, command: str) -> ViewportConfig:
+    """Build the viewport from CLI args, converting validation errors to clean output."""
+    return _validate_or_raise(command, lambda: _build_viewport(args))
+
+
+async def _preflight_verify_auth() -> None:
+    try:
+        from yutori import AsyncYutoriClient, AuthenticationError
+        from yutori.auth.credentials import resolve_api_key
+    except Exception as exc:  # pragma: no cover - dependency should be present in production installs
+        raise ConfigurationError("Yutori SDK is unavailable. Install the frontend-visualqa dependencies and retry.") from exc
+
+    api_key = resolve_api_key()
+    if not api_key:
+        raise ConfigurationError(
+            "Yutori authentication is required for verify. Run 'yutori auth login' or set YUTORI_API_KEY."
+        )
+
+    client = AsyncYutoriClient(api_key=api_key)
+    # Match the transport NavigatorClient uses so verify-time logs don't show
+    # one HTTP/1.1 line for /v1/usage followed by HTTP/2 for /v1/chat/completions.
+    # AsyncYutoriClient's default timeout is 30s — pass that through so the
+    # HTTP/2 client mirrors the original's behavior.
+    from frontend_visualqa.navigator_client import enable_http2_on_yutori_client
+
+    enable_http2_on_yutori_client(client, timeout_seconds=30.0)
+    try:
+        await client.get_usage()
+    except AuthenticationError as exc:
+        raise ConfigurationError(
+            f"Yutori authentication failed: {exc}. Run 'yutori auth login' or set a valid YUTORI_API_KEY."
+        ) from exc
+    except Exception:
+        # Non-auth preflight failures should fall back to the normal verify path.
+        return
+    finally:
+        await client.close()
+
+
+def _verify_exit_code(result: dict[str, Any]) -> int:
+    statuses = [item.get("status") for item in result.get("results", [])]
+    return 0 if statuses and all(status == "passed" for status in statuses) else 1
+
+
+def _stderr_supports_color() -> bool:
+    """Whether ANSI color codes should be emitted on stderr.
+
+    Honors the de-facto standards (NO_COLOR / FORCE_COLOR env vars) and falls
+    back to TTY detection. We never colorize when stderr is being captured by
+    a file or pipe, since most consumers don't strip escape sequences.
+    """
+    if os.environ.get("NO_COLOR"):
+        return False
+    if os.environ.get("FORCE_COLOR"):
+        return True
+    return sys.stderr.isatty()
+
+
+def _print_run_summary(result: dict[str, Any], *, all_passed: bool) -> None:
+    """Print the run summary at end-of-verify, green if all passed else red.
+
+    Goes to stderr so the JSON on stdout stays clean for piping. Skips
+    silently when the result has no summary (e.g., a configuration failure
+    that short-circuited before the runner produced one).
+    """
+    summary = result.get("summary")
+    if not summary:
+        return
+    glyph = "✓" if all_passed else "✗"
+    text = f"{glyph} {summary}"
+    if _stderr_supports_color():
+        # 1 = bold, 32 = green, 31 = red. Bold helps the line stand out at
+        # the end of a verbose run without being shouty.
+        color = "32" if all_passed else "31"
+        text = f"\x1b[1;{color}m{text}\x1b[0m"
+    print(text, file=sys.stderr, flush=True)
+
+
+def _truncate_for_progress(text: str, limit: int = 120) -> str:
+    return clip_text(text, limit)
+
+
+async def _run_screenshot(args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        url = validate_url(args.url)
+    except ValueError as exc:
+        raise ConfigurationError(str(exc)) from exc
+    viewport = _validated_viewport(args, "screenshot")
+
+    async with _runner_scope(browser_config=_build_browser_config(args)) as runner:
+        result = await runner.take_screenshot(
+            url=url,
+            viewport=viewport,
+            session_key=args.session_key,
+            run_name=args.run_name,
+            reuse_session=args.reuse_session,
+        )
+        return serialize_result(result)
+
+
+async def _run_login(args: argparse.Namespace) -> int:
+    manager = BrowserManager(config=_build_browser_config(args, force_mode=BrowserMode.persistent, force_headed=True))
+    browser_closed = False
+    manager_closed = False
+    loop = asyncio.get_running_loop()
+    done = asyncio.Event()
+
+    def _mark_browser_closed(*_: object) -> None:
+        nonlocal browser_closed
+        browser_closed = True
+        loop.call_soon_threadsafe(done.set)
+
+    def _read_stdin() -> None:
+        try:
+            sys.stdin.readline()
+        finally:
+            loop.call_soon_threadsafe(done.set)
+
+    session = None
+    try:
+        session = await manager.get_session("default", reuse_session=False)
+        session.context.on("close", _mark_browser_closed)
+        await manager.goto(session, args.url)
+        print("Browser is open. Log in, then press Enter here to close and save the session.", file=sys.stderr)
+        reader = threading.Thread(target=_read_stdin, daemon=True)
+        reader.start()
+        # An asyncio.Event (set via call_soon_threadsafe from the background
+        # stdin-reader thread, or directly from the browser's own "close"
+        # callback) reacts immediately instead of polling on a fixed
+        # interval, and — unlike parking a thread in the default executor on
+        # a threading.Event.wait() — stays cleanly cancellable: no orphaned
+        # worker thread can block interpreter shutdown if this coroutine is
+        # ever cancelled before done is set.
+        await done.wait()
+
+        await manager.close()  # stops Playwright subprocess, even if the window already closed itself
+        manager_closed = True
+        print("Browser closed." if browser_closed else "Saved session.", file=sys.stderr)
+        return 0
+    finally:
+        if not manager_closed:
+            try:
+                await manager.close()
+            except Exception:
+                logger.debug("Failed to close browser during login cleanup", exc_info=True)
+
+
+async def _run_status() -> dict[str, Any]:
+    async with _runner_scope() as runner:
+        result = await runner.manage_browser(action="status")
+        return serialize_result(result)
+
+
+def _new_runner(*, browser_config: BrowserConfig | None = None, reporters: list[str] | None = None) -> VisualQARunner:
+    from frontend_visualqa.runner import VisualQARunner
+
+    return VisualQARunner(browser_config=browser_config, reporters=reporters)
+
+
+@asynccontextmanager
+async def _runner_scope(
+    *, browser_config: BrowserConfig | None = None, reporters: list[str] | None = None
+) -> AsyncIterator[VisualQARunner]:
+    runner = _new_runner(browser_config=browser_config, reporters=reporters)
+    try:
+        yield runner
+    finally:
+        await runner.close()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

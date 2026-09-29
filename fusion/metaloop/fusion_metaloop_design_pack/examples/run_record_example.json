@@ -1,0 +1,63 @@
+{
+  "run_id": "ml_20260710_001",
+  "mode": "metaloop",
+  "status": "completed",
+  "host": {
+    "provider": "codex-host",
+    "model": "gpt-5.6-sol",
+    "role": "chief_operator"
+  },
+  "advisor": {
+    "provider": "fable",
+    "model": "fable",
+    "policy": "auto",
+    "calls": 1,
+    "decisions": ["revise"],
+    "required_changes": 3,
+    "adopted": 2,
+    "partially_adopted": 1,
+    "overridden": 0
+  },
+  "workers": [
+    {
+      "provider": "opencode",
+      "model": "opencode-go/glm-5.2",
+      "model_family": "glm",
+      "harness": "opencode",
+      "tier": "expert",
+      "tasks": ["T-02"],
+      "status": "returned"
+    },
+    {
+      "provider": "copilot",
+      "model": "gemini-3.5-flash",
+      "model_family": "gemini",
+      "harness": "github-copilot-cli",
+      "tier": "fast",
+      "tasks": ["T-03"],
+      "status": "returned"
+    }
+  ],
+  "correlation_groups": {
+    "gemini": ["agy", "copilot"]
+  },
+  "workspace_mode": "proposal",
+  "repair_rounds": 1,
+  "promotions": [
+    {
+      "task_id": "T-04",
+      "from": "fast",
+      "to": "expert",
+      "reason": "verification_failure"
+    }
+  ],
+  "final_gate": {
+    "status": "pass",
+    "commands": [
+      {"command": "bash tests/validate.sh", "exit_code": 0},
+      {"command": "python -m unittest tests.test_metaloop", "exit_code": 0}
+    ]
+  },
+  "absent_is_agreement": false,
+  "completed_at": "2026-07-10T00:00:00Z"
+}

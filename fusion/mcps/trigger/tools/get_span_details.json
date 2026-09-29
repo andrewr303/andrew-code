@@ -1,0 +1,46 @@
+{
+  "name": "get_span_details",
+  "description": "Get detailed information about a specific span within a run trace. Use get_run_details first to see the trace and find span IDs (shown as [spanId] in the trace output). Returns timing, properties/attributes, error info, and for AI spans: model, tokens, cost, and response data.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "projectRef": {
+        "type": "string",
+        "description": "The trigger.dev project ref, starts with proj_. We will attempt to automatically detect the project ref if running inside a directory that includes a trigger.config.ts file, or if you pass the --project-ref option to the MCP server."
+      },
+      "configPath": {
+        "type": "string",
+        "description": "The path to the trigger.config.ts file. Only used when the trigger.config.ts file is not at the root dir (like in a monorepo setup). If not provided, we will try to find the config file in the current working directory"
+      },
+      "environment": {
+        "type": "string",
+        "enum": [
+          "dev",
+          "staging",
+          "prod",
+          "preview"
+        ],
+        "description": "The environment to get tasks for",
+        "default": "dev"
+      },
+      "branch": {
+        "type": "string",
+        "description": "The branch to get tasks for, only used for preview environments"
+      },
+      "runId": {
+        "type": "string",
+        "description": "The ID of the run to get the details of, starts with run_"
+      },
+      "spanId": {
+        "type": "string",
+        "description": "The span ID to get details for. You can find span IDs in the trace output from get_run_details — they appear as [spanId] before each span message."
+      }
+    },
+    "required": [
+      "runId",
+      "spanId"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

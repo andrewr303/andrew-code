@@ -1,0 +1,861 @@
+"""Tests for the database client."""
+
+import tempfile
+from datetime import datetime, timedelta
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from cli_agent_orchestrator.clients.database import (
+    Base,
+    FlowModel,
+    InboxModel,
+    TerminalModel,
+    create_flow,
+    create_inbox_message,
+    create_terminal,
+    delete_flow,
+    delete_terminal,
+    delete_terminals_by_session,
+    get_flow,
+    get_inbox_messages,
+    get_pending_messages,
+    get_terminal_metadata,
+    init_db,
+    list_flows,
+    list_pending_receiver_ids_by_provider,
+    list_pending_receiver_ids_older_than,
+    list_terminals_by_session,
+    update_flow_enabled,
+    update_flow_run_times,
+    update_last_active,
+    update_message_status,
+    update_terminal_shell_command,
+)
+from cli_agent_orchestrator.models.inbox import MessageStatus
+
+
+@pytest.fixture
+def test_db():
+    """Create an in-memory test database."""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    TestSession = sessionmaker(bind=engine)
+    return TestSession
+
+
+class TestTerminalOperations:
+    """Tests for terminal database operations."""
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_create_terminal(self, mock_session_class):
+        """Test creating a terminal record."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+        mock_session_class.return_value = mock_session
+
+        result = create_terminal("test123", "cao-session", "window-0", "kiro_cli", "developer")
+
+        assert result["id"] == "test123"
+        mock_session.add.assert_called_once()
+        mock_session.commit.assert_called_once()
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_get_terminal_metadata_found(self, mock_session_class):
+        """Test getting terminal metadata that exists."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_terminal = MagicMock()
+        mock_terminal.id = "test123"
+        mock_terminal.tmux_session = "cao-session"
+        mock_terminal.tmux_window = "window-0"
+        mock_terminal.provider = "kiro_cli"
+        mock_terminal.agent_profile = "developer"
+        mock_terminal.allowed_tools = None
+        mock_terminal.last_active = datetime.now()
+
+        mock_query = MagicMock()
+        mock_query.filter.return_value.first.return_value = mock_terminal
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = get_terminal_metadata("test123")
+
+        assert result is not None
+        assert result["id"] == "test123"
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_get_terminal_metadata_not_found(self, mock_session_class):
+        """Test getting terminal metadata that doesn't exist."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_query = MagicMock()
+        mock_query.filter.return_value.first.return_value = None
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = get_terminal_metadata("nonexistent")
+
+        assert result is None
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_update_last_active(self, mock_session_class):
+        """Test updating last active timestamp."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_terminal = MagicMock()
+        mock_query = MagicMock()
+        mock_query.filter.return_value.first.return_value = mock_terminal
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        update_last_active("test123")
+
+        mock_session.commit.assert_called_once()
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_update_terminal_shell_command(self, mock_session_class):
+        """Test updating shell_command baseline for a terminal."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_terminal = MagicMock()
+        mock_query = MagicMock()
+        mock_query.filter.return_value.first.return_value = mock_terminal
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = update_terminal_shell_command("test123", "bash")
+
+        assert result is True
+        assert mock_terminal.shell_command == "bash"
+        mock_session.commit.assert_called_once()
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_update_terminal_shell_command_not_found(self, mock_session_class):
+        """Test updating shell_command for a terminal that doesn't exist."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_query = MagicMock()
+        mock_query.filter.return_value.first.return_value = None
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = update_terminal_shell_command("nonexistent", "bash")
+
+        assert result is False
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_delete_terminal(self, mock_session_class):
+        """Test deleting a terminal."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_query = MagicMock()
+        mock_query.filter.return_value.delete.return_value = 1
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = delete_terminal("test123")
+
+        assert result is True
+        mock_session.commit.assert_called_once()
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_delete_terminal_not_found(self, mock_session_class):
+        """Test deleting a terminal that doesn't exist."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_query = MagicMock()
+        mock_query.filter.return_value.delete.return_value = 0
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = delete_terminal("nonexistent")
+
+        assert result is False
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_list_terminals_by_session(self, mock_session_class):
+        """Test listing terminals by session."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_terminal = MagicMock()
+        mock_terminal.id = "test123"
+        mock_terminal.tmux_session = "cao-session"
+        mock_terminal.tmux_window = "window-0"
+        mock_terminal.provider = "kiro_cli"
+        mock_terminal.agent_profile = "developer"
+        mock_terminal.last_active = datetime.now()
+
+        mock_query = MagicMock()
+        mock_query.filter.return_value.all.return_value = [mock_terminal]
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = list_terminals_by_session("cao-session")
+
+        assert len(result) == 1
+        assert result[0]["id"] == "test123"
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_list_pending_receiver_ids_by_provider(self, mock_session_class):
+        """Test listing pending receivers for a specific provider."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_query = MagicMock()
+        mock_query.join.return_value.filter.return_value.distinct.return_value.all.return_value = [
+            ("receiver-1",),
+            ("receiver-2",),
+        ]
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = list_pending_receiver_ids_by_provider("opencode_cli")
+
+        assert result == ["receiver-1", "receiver-2"]
+
+    def test_list_pending_receiver_ids_older_than(self, test_db):
+        """Only messages pending past the grace window — whose receiver
+        terminal still exists — are returned for reconciliation (issue #131).
+
+        Uses the real in-memory DB (not a mocked session) so the age cutoff,
+        status filter, and terminal join are actually exercised.
+        """
+        old = datetime.now() - timedelta(seconds=120)
+        fresh = datetime.now()
+
+        with test_db() as seed:
+            seed.add_all(
+                [
+                    TerminalModel(
+                        id="term-old",
+                        tmux_session="cao-s",
+                        tmux_window="w",
+                        provider="kiro_cli",
+                    ),
+                    TerminalModel(
+                        id="term-fresh",
+                        tmux_session="cao-s",
+                        tmux_window="w",
+                        provider="kiro_cli",
+                    ),
+                    # Stuck long enough to reconcile, receiver still alive — kept.
+                    InboxModel(
+                        sender_id="a",
+                        receiver_id="term-old",
+                        message="m",
+                        status=MessageStatus.PENDING.value,
+                        created_at=old,
+                    ),
+                    # Too recent — left to the immediate/watchdog paths.
+                    InboxModel(
+                        sender_id="a",
+                        receiver_id="term-fresh",
+                        message="m",
+                        status=MessageStatus.PENDING.value,
+                        created_at=fresh,
+                    ),
+                    # Already delivered — not pending.
+                    InboxModel(
+                        sender_id="a",
+                        receiver_id="term-old",
+                        message="m",
+                        status=MessageStatus.DELIVERED.value,
+                        created_at=old,
+                    ),
+                    # Receiver terminal is gone — dropped by the join.
+                    InboxModel(
+                        sender_id="a",
+                        receiver_id="term-ghost",
+                        message="m",
+                        status=MessageStatus.PENDING.value,
+                        created_at=old,
+                    ),
+                ]
+            )
+            seed.commit()
+
+        with patch("cli_agent_orchestrator.clients.database.SessionLocal", test_db):
+            result = list_pending_receiver_ids_older_than(30)
+
+        assert result == ["term-old"]
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_delete_terminals_by_session(self, mock_session_class):
+        """Test deleting all terminals in a session."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_query = MagicMock()
+        mock_query.filter.return_value.delete.return_value = 2
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = delete_terminals_by_session("cao-session")
+
+        assert result == 2
+
+
+class TestInboxOperations:
+    """Tests for inbox database operations."""
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_update_message_status(self, mock_session_class):
+        """Test updating message status."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_message = MagicMock()
+        mock_query = MagicMock()
+        mock_query.filter.return_value.first.return_value = mock_message
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        update_message_status(1, MessageStatus.DELIVERED)
+
+        mock_session.commit.assert_called_once()
+
+
+class TestFlowOperations:
+    """Tests for flow database operations."""
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_get_flow_not_found(self, mock_session_class):
+        """Test getting a flow that doesn't exist."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_query = MagicMock()
+        mock_query.filter.return_value.first.return_value = None
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = get_flow("nonexistent")
+
+        assert result is None
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_update_flow_enabled(self, mock_session_class):
+        """Test updating flow enabled status."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_flow = MagicMock()
+        mock_query = MagicMock()
+        mock_query.filter.return_value.first.return_value = mock_flow
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        update_flow_enabled("test-flow", False)
+
+        mock_session.commit.assert_called_once()
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_update_flow_run_times(self, mock_session_class):
+        """Test updating flow run times."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_flow = MagicMock()
+        mock_query = MagicMock()
+        mock_query.filter.return_value.first.return_value = mock_flow
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = update_flow_run_times("test-flow", datetime.now(), datetime.now())
+
+        assert result is True
+        mock_session.commit.assert_called_once()
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_update_flow_run_times_not_found(self, mock_session_class):
+        """Test updating flow run times when flow doesn't exist."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_query = MagicMock()
+        mock_query.filter.return_value.first.return_value = None
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = update_flow_run_times("nonexistent", datetime.now(), datetime.now())
+
+        assert result is False
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_update_flow_enabled_not_found(self, mock_session_class):
+        """Test updating flow enabled when flow doesn't exist."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_query = MagicMock()
+        mock_query.filter.return_value.first.return_value = None
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = update_flow_enabled("nonexistent", False)
+
+        assert result is False
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_update_flow_enabled_with_next_run(self, mock_session_class):
+        """Test updating flow enabled with next_run."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_flow = MagicMock()
+        mock_query = MagicMock()
+        mock_query.filter.return_value.first.return_value = mock_flow
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        next_run = datetime.now()
+        result = update_flow_enabled("test-flow", True, next_run=next_run)
+
+        assert result is True
+        assert mock_flow.next_run == next_run
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_create_flow(self, mock_session_class):
+        """Test creating a flow."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+        mock_session_class.return_value = mock_session
+
+        # Setup mock to update flow attributes on refresh
+        def mock_refresh(flow):
+            flow.name = "test-flow"
+            flow.file_path = "/path/to/file.yaml"
+            flow.schedule = "0 * * * *"
+            flow.agent_profile = "developer"
+            flow.provider = "kiro_cli"
+            flow.script = "echo test"
+            flow.next_run = datetime.now()
+            flow.last_run = None
+            flow.enabled = True
+
+        mock_session.refresh.side_effect = mock_refresh
+
+        from cli_agent_orchestrator.clients.database import get_flows_to_run
+
+        next_run = datetime.now()
+        result = create_flow(
+            name="test-flow",
+            file_path="/path/to/file.yaml",
+            schedule="0 * * * *",
+            agent_profile="developer",
+            provider="kiro_cli",
+            script="echo test",
+            next_run=next_run,
+        )
+
+        assert result.name == "test-flow"
+        mock_session.add.assert_called_once()
+        mock_session.commit.assert_called_once()
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_get_flow_found(self, mock_session_class):
+        """Test getting a flow that exists."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_flow = MagicMock()
+        mock_flow.name = "test-flow"
+        mock_flow.file_path = "/path/to/file.yaml"
+        mock_flow.schedule = "0 * * * *"
+        mock_flow.agent_profile = "developer"
+        mock_flow.provider = "kiro_cli"
+        mock_flow.script = "echo test"
+        mock_flow.last_run = None
+        mock_flow.next_run = datetime.now()
+        mock_flow.enabled = True
+
+        mock_query = MagicMock()
+        mock_query.filter.return_value.first.return_value = mock_flow
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = get_flow("test-flow")
+
+        assert result is not None
+        assert result.name == "test-flow"
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_list_flows(self, mock_session_class):
+        """Test listing all flows."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_flow = MagicMock()
+        mock_flow.name = "test-flow"
+        mock_flow.file_path = "/path/to/file.yaml"
+        mock_flow.schedule = "0 * * * *"
+        mock_flow.agent_profile = "developer"
+        mock_flow.provider = "kiro_cli"
+        mock_flow.script = "echo test"
+        mock_flow.last_run = None
+        mock_flow.next_run = datetime.now()
+        mock_flow.enabled = True
+
+        mock_query = MagicMock()
+        mock_query.order_by.return_value.all.return_value = [mock_flow]
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = list_flows()
+
+        assert len(result) == 1
+        assert result[0].name == "test-flow"
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_delete_flow(self, mock_session_class):
+        """Test deleting a flow."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_query = MagicMock()
+        mock_query.filter.return_value.delete.return_value = 1
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = delete_flow("test-flow")
+
+        assert result is True
+        mock_session.commit.assert_called_once()
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_delete_flow_not_found(self, mock_session_class):
+        """Test deleting a flow that doesn't exist."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_query = MagicMock()
+        mock_query.filter.return_value.delete.return_value = 0
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = delete_flow("nonexistent")
+
+        assert result is False
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_get_flows_to_run(self, mock_session_class):
+        """Test getting flows that are due to run."""
+        from cli_agent_orchestrator.clients.database import get_flows_to_run
+
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_flow = MagicMock()
+        mock_flow.name = "due-flow"
+        mock_flow.file_path = "/path/to/file.yaml"
+        mock_flow.schedule = "0 * * * *"
+        mock_flow.agent_profile = "developer"
+        mock_flow.provider = "kiro_cli"
+        mock_flow.script = "echo test"
+        mock_flow.last_run = None
+        mock_flow.next_run = datetime.now()
+        mock_flow.enabled = True
+
+        mock_query = MagicMock()
+        mock_query.filter.return_value.all.return_value = [mock_flow]
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = get_flows_to_run()
+
+        assert len(result) == 1
+        assert result[0].name == "due-flow"
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_update_last_active_not_found(self, mock_session_class):
+        """Test updating last active when terminal doesn't exist."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_query = MagicMock()
+        mock_query.filter.return_value.first.return_value = None
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = update_last_active("nonexistent")
+
+        assert result is False
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_update_message_status_not_found(self, mock_session_class):
+        """Test updating message status when message doesn't exist."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        mock_query = MagicMock()
+        mock_query.filter.return_value.first.return_value = None
+        mock_session.query.return_value = mock_query
+        mock_session_class.return_value = mock_session
+
+        result = update_message_status(999, MessageStatus.DELIVERED)
+
+        assert result is False
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_create_inbox_message(self, mock_session_class):
+        """Test creating an inbox message when receiver terminal exists."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+        mock_session_class.return_value = mock_session
+
+        # Receiver terminal exists
+        mock_session.query.return_value.filter.return_value.first.return_value = MagicMock()
+
+        # Setup mock to update message attributes on refresh
+        def mock_refresh(msg):
+            msg.id = 1
+            msg.sender_id = "sender-123"
+            msg.receiver_id = "receiver-456"
+            msg.message = "Hello"
+            msg.status = MessageStatus.PENDING.value
+            msg.created_at = datetime.now()
+
+        mock_session.refresh.side_effect = mock_refresh
+
+        result = create_inbox_message("sender-123", "receiver-456", "Hello")
+
+        assert result.sender_id == "sender-123"
+        assert result.receiver_id == "receiver-456"
+        assert result.message == "Hello"
+        mock_session.add.assert_called_once()
+        mock_session.commit.assert_called_once()
+
+    @patch("cli_agent_orchestrator.clients.database.SessionLocal")
+    def test_create_inbox_message_receiver_not_found(self, mock_session_class):
+        """create_inbox_message raises ValueError when receiver terminal does not exist."""
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+        mock_session_class.return_value = mock_session
+
+        # Receiver terminal does not exist
+        mock_session.query.return_value.filter.return_value.first.return_value = None
+
+        with pytest.raises(ValueError, match="not found"):
+            create_inbox_message("sender-123", "dead-terminal", "Hello")
+
+
+class TestInitDb:
+    """Tests for init_db function."""
+
+    @patch("cli_agent_orchestrator.clients.database.Base")
+    @patch("cli_agent_orchestrator.clients.database._migrate_project_aliases_schema")
+    def test_init_db(self, mock_alias_migrate, mock_base):
+        """Test database initialization."""
+        init_db()
+
+        mock_base.metadata.create_all.assert_called_once()
+
+
+class TestTerminalsSchemaMigration:
+    """Tests for the terminals-table column-add migration (caller_id, issue #284)."""
+
+    def test_caller_id_column_added_to_legacy_table(self, tmp_path, monkeypatch):
+        """A pre-#284 terminals table gains the caller_id column."""
+        import sqlite3
+
+        from cli_agent_orchestrator.clients import database as db_mod
+
+        db_file = tmp_path / "legacy.db"
+        with sqlite3.connect(str(db_file)) as conn:
+            conn.execute(
+                "CREATE TABLE terminals ("
+                "id TEXT PRIMARY KEY, tmux_session TEXT NOT NULL, "
+                "tmux_window TEXT NOT NULL, provider TEXT NOT NULL, "
+                "agent_profile TEXT, allowed_tools TEXT, shell_command TEXT, "
+                "last_active TIMESTAMP)"
+            )
+            conn.execute(
+                "INSERT INTO terminals (id, tmux_session, tmux_window, provider) "
+                "VALUES ('abc12345', 'cao-s', 'w-0', 'kiro_cli')"
+            )
+            conn.commit()
+
+        # _migrate_terminals_schema reads DATABASE_FILE from constants at call time
+        monkeypatch.setattr(
+            "cli_agent_orchestrator.constants.DATABASE_FILE", db_file, raising=False
+        )
+
+        db_mod._migrate_terminals_schema()
+
+        with sqlite3.connect(str(db_file)) as conn:
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(terminals)")}
+            rows = conn.execute("SELECT id, caller_id FROM terminals").fetchall()
+        assert "caller_id" in columns
+        assert rows == [("abc12345", None)], "existing rows must get NULL caller_id"
+
+    def test_migration_is_idempotent(self, tmp_path, monkeypatch):
+        """Running the migration twice must not fail or duplicate columns."""
+        import sqlite3
+
+        from cli_agent_orchestrator.clients import database as db_mod
+
+        db_file = tmp_path / "current.db"
+        with sqlite3.connect(str(db_file)) as conn:
+            conn.execute(
+                "CREATE TABLE terminals ("
+                "id TEXT PRIMARY KEY, tmux_session TEXT NOT NULL, "
+                "tmux_window TEXT NOT NULL, provider TEXT NOT NULL)"
+            )
+            conn.commit()
+
+        # _migrate_terminals_schema reads DATABASE_FILE from constants at call time
+        monkeypatch.setattr(
+            "cli_agent_orchestrator.constants.DATABASE_FILE", db_file, raising=False
+        )
+
+        db_mod._migrate_terminals_schema()
+        db_mod._migrate_terminals_schema()
+
+        with sqlite3.connect(str(db_file)) as conn:
+            columns = [row[1] for row in conn.execute("PRAGMA table_info(terminals)")]
+        assert columns.count("caller_id") == 1
+        assert columns.count("allowed_tools") == 1
+
+
+class TestCallerIdRoundTrip:
+    """caller_id must round-trip create→read (issue #284): a write path that
+    persists it and a read path that drops it would silently break callback
+    routing for every worker."""
+
+    def test_caller_id_round_trips_through_real_db(self, tmp_path, monkeypatch):
+        """create_terminal persists caller_id; get_terminal_metadata returns it."""
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        from cli_agent_orchestrator.clients import database as db_mod
+
+        engine = create_engine(f"sqlite:///{tmp_path / 'rt.db'}")
+        Base.metadata.create_all(bind=engine)
+        monkeypatch.setattr(db_mod, "SessionLocal", sessionmaker(bind=engine))
+
+        created = create_terminal(
+            "abc12345", "cao-s", "w-0", "kiro_cli", "developer", caller_id="def67890"
+        )
+        assert created["caller_id"] == "def67890"
+
+        fetched = get_terminal_metadata("abc12345")
+        assert fetched is not None
+        assert fetched["caller_id"] == "def67890"
+
+    def test_caller_id_defaults_to_none(self, tmp_path, monkeypatch):
+        """Operator-launched terminals (no caller) round-trip NULL."""
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        from cli_agent_orchestrator.clients import database as db_mod
+
+        engine = create_engine(f"sqlite:///{tmp_path / 'rt2.db'}")
+        Base.metadata.create_all(bind=engine)
+        monkeypatch.setattr(db_mod, "SessionLocal", sessionmaker(bind=engine))
+
+        created = create_terminal("abc12345", "cao-s", "w-0", "kiro_cli")
+        assert created["caller_id"] is None
+
+        fetched = get_terminal_metadata("abc12345")
+        assert fetched is not None
+        assert fetched["caller_id"] is None
+
+
+class TestProjectAliasMigration:
+    """Tests for the project_aliases alias-only primary-key migration."""
+
+    def test_legacy_composite_pk_table_is_rebuilt(self, tmp_path, monkeypatch):
+        """A legacy table with composite PK (project_id, alias) is dropped."""
+        import sqlite3
+
+        from cli_agent_orchestrator.clients import database as db_mod
+
+        db_file = tmp_path / "legacy.db"
+        with sqlite3.connect(str(db_file)) as conn:
+            conn.execute(
+                "CREATE TABLE project_aliases ("
+                "project_id TEXT NOT NULL, alias TEXT NOT NULL, kind TEXT NOT NULL, "
+                "created_at TEXT, PRIMARY KEY (project_id, alias))"
+            )
+            conn.execute("INSERT INTO project_aliases VALUES ('p1', 'a1', 'cwd_hash', NULL)")
+            conn.commit()
+
+        monkeypatch.setattr(db_mod, "DATABASE_FILE", db_file, raising=False)
+        monkeypatch.setattr(
+            "cli_agent_orchestrator.constants.DATABASE_FILE", db_file, raising=False
+        )
+
+        db_mod._migrate_project_aliases_schema()
+
+        with sqlite3.connect(str(db_file)) as conn:
+            exists = conn.execute(
+                "SELECT name FROM sqlite_master " "WHERE type='table' AND name='project_aliases'"
+            ).fetchone()
+        assert exists is None, "legacy table should be dropped for create_all to rebuild"
+
+    def test_alias_only_pk_table_is_left_intact(self, tmp_path, monkeypatch):
+        """A table already keyed on alias alone is not touched."""
+        import sqlite3
+
+        from cli_agent_orchestrator.clients import database as db_mod
+
+        db_file = tmp_path / "current.db"
+        with sqlite3.connect(str(db_file)) as conn:
+            conn.execute(
+                "CREATE TABLE project_aliases ("
+                "alias TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL, "
+                "created_at TEXT)"
+            )
+            conn.execute("INSERT INTO project_aliases VALUES ('a1', 'p1', 'cwd_hash', NULL)")
+            conn.commit()
+
+        monkeypatch.setattr(db_mod, "DATABASE_FILE", db_file, raising=False)
+        monkeypatch.setattr(
+            "cli_agent_orchestrator.constants.DATABASE_FILE", db_file, raising=False
+        )
+
+        db_mod._migrate_project_aliases_schema()
+
+        with sqlite3.connect(str(db_file)) as conn:
+            rows = conn.execute("SELECT alias, project_id FROM project_aliases").fetchall()
+        assert rows == [("a1", "p1")], "current-schema table must be left intact"

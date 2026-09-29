@@ -1,0 +1,9 @@
+{
+  "name": "list_profiles",
+  "description": "List all configured CLI profiles. Shows which profile is currently active.",
+  "inputSchema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {}
+  }
+}

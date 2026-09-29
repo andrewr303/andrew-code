@@ -1,0 +1,18 @@
+{
+  "name": "switch_profile",
+  "description": "Switch the active CLI profile for this MCP session. This changes which Trigger.dev account and API URL are used for all subsequent tool calls.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "profile": {
+        "type": "string",
+        "description": "The profile name to switch to. Use list_profiles to see available profiles."
+      }
+    },
+    "required": [
+      "profile"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

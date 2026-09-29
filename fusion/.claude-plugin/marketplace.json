@@ -1,0 +1,38 @@
+{
+  "name": "fusion-metaloop",
+  "id": "fusion-metaloop",
+  "owner": {
+    "name": "Andrew",
+    "url": "https://github.com/nyldn"
+  },
+  "metadata": {
+    "description": "Fusion multi-model council + swarm control plane, with the MetaLoop mode (Fable 5 CEO + GPT Chief Operator + tiered expert/fast swarm).",
+    "version": "2.1.0+metaloop"
+  },
+  "plugins": [
+    {
+      "name": "fusion",
+      "source": "./",
+      "version": "2.1.0+metaloop",
+      "category": "orchestration",
+      "description": "Multi-model council and swarm control plane. Adds MetaLoop: Fable 5 as CEO (frames every run) + GPT Chief Operator + expert (Grok, OpenCode/GLM) and fast (two Antigravity/Gemini 3.5 Flash sessions) labor tiers, with typed contracts, risk-aware routing, correlation-aware consensus, real-repo proposal mode, and deterministic gates.",
+      "author": {
+        "name": "Andrew",
+        "url": "https://github.com/nyldn"
+      },
+      "keywords": [
+        "multi-llm",
+        "multi-model",
+        "fusion",
+        "council",
+        "swarm",
+        "orchestration",
+        "metaloop",
+        "board-advisor",
+        "fable",
+        "antigravity",
+        "tiered-swarm"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "list_projects",
+  "description": "List all projects for the current user, useful for when searching for a project and for looking up a projectRef",
+  "inputSchema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {}
+  }
+}

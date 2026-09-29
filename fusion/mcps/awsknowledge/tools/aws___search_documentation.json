@@ -1,0 +1,28 @@
+{
+  "name": "aws___search_documentation",
+  "description": "AWS docs search. Each result's `context` is verbatim page text -- a real chunk of the actual page, not a short snippet -- and usually already contains the answer, so answer directly from it. Use `read_documentation` only when the chunks genuinely lack the needed detail.\n\nPick ONE topic. Add a 2nd ONLY if query genuinely spans domains. Extra topics dilute ranking.\n\n- reference_documentation -- API/SDK/CLI specs, config params\n- current_awareness -- new/released/announced\n- troubleshooting -- errors, \"how to fix\" (NOT for conceptual/feature questions)\n- amplify_docs -- Amplify (+ language)\n- cdk_docs -- CDK concepts/guides\n- cdk_constructs -- CDK code samples, L3\n- cloudformation -- CFN/SAM templates\n- strands_docs -- Strands Agents SDK (its Skills/agents concepts go here, NOT agent_skills)\n- agent_skills -- this tool's guided skills (load via `retrieve_skill`)\n- general (default) -- architecture, best practices, tutorials, feature behavior\n\nResults: rank_order (lower=better), url, title, context (verbatim page chunk -- answer directly from it).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "limit": {
+        "type": "integer",
+        "description": "Max results per topic (default 5)."
+      },
+      "search_phrase": {
+        "type": "string",
+        "description": "Keywords; preserve exact error strings and all task terms verbatim."
+      },
+      "topics": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "description": "topic name"
+        },
+        "description": "Up to 3 from: reference_documentation, current_awareness, troubleshooting, amplify_docs, cdk_docs, cdk_constructs, cloudformation, agent_skills, strands_docs, general. Default [\"general\"]."
+      }
+    },
+    "required": [
+      "search_phrase"
+    ]
+  }
+}
